@@ -44,6 +44,15 @@ En 1m ajusta comisión y slippage en *Properties*: con muchas operaciones pesan 
 - **Filtros de calidad**: ADX de 1h (rango vs. tendencia), estructura LTF girada a favor para los Pullback, riesgo mínimo vs. comisión, pausa tras pérdida, horario.
 - **Tamaño por riesgo**: cada operación arriesga un % fijo del capital (0.5% por defecto) con tope de apalancamiento.
 
+### Timeframes automáticos (por defecto)
+| Gráfico | Confirmación | Macro |
+|---|---|---|
+| 1m – 30m | 1h | 4h |
+| 1h | 4h | Diario |
+| 2h – 4h | Diario | Semanal |
+
+Funciona en 5m, 15m, 1h y 4h sin tocar nada. En 1h/4h TradingView carga años de historia: ideal para validar el backtest.
+
 ### Uso
 1. Pega el script en el Pine Editor de TradingView y pulsa *Add to chart*.
 2. Pon el gráfico en el mismo timeframe que el input **LTF · Entrada** (por defecto 5m).

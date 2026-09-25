@@ -55,8 +55,13 @@ G_VIS   = "🎨 Visualización"
 G_DATE  = "📅 Rango de backtest"
 
 // --- Timeframes ---
-tfMacro   = input.timeframe("240", "MTF1 · Macro-tendencia", group = G_TF)
-tfConfirm = input.timeframe("60",  "MTF2 · Confirmación",    group = G_TF)
+autoTf    = input.bool(true, "Timeframes automáticos según el gráfico", group = G_TF,
+     tooltip = "Gráfico 1m–30m → confirmación 1h y macro 4h. Gráfico 1h → 4h y Diario. Gráfico 2h–4h → Diario y Semanal. Así se puede hacer backtest en 1h/4h con años de historia. Desactivar para usar los timeframes manuales de abajo.")
+tfMacroIn   = input.timeframe("240", "MTF1 · Macro-tendencia (manual)", group = G_TF)
+tfConfirmIn = input.timeframe("60",  "MTF2 · Confirmación (manual)",    group = G_TF)
+chartSec  = timeframe.in_seconds(timeframe.period)
+tfConfirm = autoTf ? (chartSec <= 1800 ? "60"  : chartSec <= 3600 ? "240" : chartSec <= 14400 ? "D" : "W") : tfConfirmIn
+tfMacro   = autoTf ? (chartSec <= 1800 ? "240" : chartSec <= 3600 ? "D"   : chartSec <= 14400 ? "W" : "M") : tfMacroIn
 tfEntry   = input.timeframe("5",   "LTF · Entrada (debe coincidir con el gráfico)", options = ["60", "15", "5", "1"], group = G_TF,
      tooltip = "La estrategia ejecuta órdenes en el timeframe del gráfico. Selecciona aquí el LTF deseado y abre el gráfico en ese mismo timeframe. Si no coinciden se muestra un aviso y, opcionalmente, se bloquean las entradas.")
 blockOnTfMismatch = input.bool(true, "Bloquear entradas si el gráfico ≠ LTF", group = G_TF)
@@ -270,8 +275,8 @@ f_tierName(int t) =>
 f_dirColor(int dir, int t) =>
     dir == 1 ? color.new(color.lime, t == 3 ? 0 : t == 2 ? 15 : 35) : color.new(color.red, t == 3 ? 0 : t == 2 ? 15 : 35)
 
-f_tierDesc(int t, int dir) =>
-    t == 3 ? "SWING · a favor de 1h y 4h" : t == 2 ? "INTRADÍA · a favor de 1h" : "SCALP · contra 1h (rápido)"
+f_tierDesc(int t, string cName, string mName) =>
+    t == 3 ? "SWING · a favor de " + cName + " y " + mName : t == 2 ? "INTRADÍA · a favor de " + cName : "SCALP · sin " + cName + " a favor (rápido)"
 
 f_rr(int t) =>
     t == 3 ? rrSwing : t == 2 ? rrIntra : rrScalp
@@ -314,11 +319,12 @@ f_tier(int dir) =>
 [bbMid, bbUp, bbLo] = ta.bb(bbSrc, bbLen, bbMult)
 atr = ta.atr(atrLen)
 
-tfMismatch = timeframe.period != tfEntry
+tfMismatch = not autoTf and timeframe.period != tfEntry
 inSession  = not useSession or not na(time(timeframe.period, sessionStr, sessionTz))
 canTrade   = inDateRange and inSession and (not blockOnTfMismatch or not tfMismatch)
 ltfName    = f_tfText(timeframe.period)
 htfName    = f_tfText(tfConfirm)
+macroName  = f_tfText(tfMacro)
 
 // --- Estructura del LTF (para el scalping por CHOCH) ---
 [trL, evL, evcL, evlL] = f_ms(pivLenScalp)
@@ -868,10 +874,10 @@ if showPanel and barstate.islast
     // Sesgo y qué hacer
     biasTxt = bullTrend ? "ALCISTA → priorizar COMPRAS" : bearTrend ? "BAJISTA → priorizar VENTAS" : "MIXTO → sólo scalps rápidos"
     biasCol = bullTrend ? color.new(color.green, 10) : bearTrend ? color.new(color.red, 10) : color.new(color.gray, 30)
-    r := f_row(r, "SESGO (4h + 1h)", biasTxt, biasCol, w)
+    r := f_row(r, "SESGO (" + macroName + " + " + htfName + ")", biasTxt, biasCol, w)
     r := f_row(r, "Mercado (ADX " + htfName + ")", (adxOk ? "EN TENDENCIA" : "EN RANGO → sólo scalps") + " · " + str.tostring(nz(adx1), "#"), adxOk ? color.new(color.teal, 40) : color.new(color.orange, 40), w)
-    r := f_row(r, "Una VENTA ahora sería", f_tierDesc(f_tier(-1), -1), color.new(color.red, f_tier(-1) == 3 ? 20 : f_tier(-1) == 2 ? 45 : 75), w)
-    r := f_row(r, "Una COMPRA ahora sería", f_tierDesc(f_tier(1), 1), color.new(color.green, f_tier(1) == 3 ? 20 : f_tier(1) == 2 ? 45 : 75), w)
+    r := f_row(r, "Una VENTA ahora sería", f_tierDesc(f_tier(-1), htfName, macroName), color.new(color.red, f_tier(-1) == 3 ? 20 : f_tier(-1) == 2 ? 45 : 75), w)
+    r := f_row(r, "Una COMPRA ahora sería", f_tierDesc(f_tier(1), htfName, macroName), color.new(color.green, f_tier(1) == 3 ? 20 : f_tier(1) == 2 ? 45 : 75), w)
     nextTxt = bearTrend ? (trL == -1 ? "Esperar rebote a BB superior (no vender en plena caída)" : "Atento: CHOCH ↓ en " + ltfName + " = VENTA") :
          bullTrend ? (trL == 1 ? "Esperar retroceso a BB inferior (no comprar en plena subida)" : "Atento: CHOCH ↑ en " + ltfName + " = COMPRA") :
          "Scalp: CHOCH en " + ltfName + " tras barrer liquidez"
@@ -896,10 +902,10 @@ if showPanel and barstate.islast
         r := f_row(r, "Etiqueta verde ▲", "COMPRA (SCALP / INTRADÍA / SWING)", color.new(color.lime, 30), color.black)
         r := f_row(r, "Etiqueta roja ▼", "VENTA (SCALP / INTRADÍA / SWING)", color.new(color.red, 30), w)
         r := f_row(r, "Líneas roja / verde", "Stop Loss / Take Profit activos", na, w)
-        r := f_row(r, "Fondo verde / rojo", "4h y 1h de acuerdo (sesgo)", na, w)
+        r := f_row(r, "Fondo verde / rojo", macroName + " y " + htfName + " de acuerdo (sesgo)", na, w)
         r := f_row(r, "Flechas de TradingView", "Órdenes ejecutadas (entrada / salida)", na, w)
         if fullVis
-            r := f_row(r, "Escalón violeta / naranja", "BB 1h / BB 4h (zonas de liquidez)", na, w)
+            r := f_row(r, "Escalón violeta / naranja", "BB " + htfName + " / BB " + macroName + " (zonas de liquidez)", na, w)
             r := f_row(r, "Rombo / $", "CHOCH del " + ltfName + " / barrido de liquidez", na, w)
 
 // --- Tabla de estadísticas por tipo de entrada (para afinar) ---
