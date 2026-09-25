@@ -138,14 +138,18 @@ allowUpgrade = input.bool(true, "Ascender el trade si 1h/4h se alinean después 
 closeOnChoch = input.bool(true, "INTRADÍA/SWING: cerrar si hay CHOCH de 1h en contra", group = G_RISK)
 
 // --- Visual ---
-showBbLtf    = input.bool(true,  "Mostrar BB LTF",       group = G_VIS)
-showBb1h     = input.bool(true,  "Mostrar BB MTF2 (1h)", group = G_VIS)
-showBb4h     = input.bool(true,  "Mostrar BB MTF1 (4h)", group = G_VIS)
-showLiqZone  = input.bool(true,  "Sombrear zonas de liquidez HTF (extremos BB)", group = G_VIS)
-showFvg      = input.bool(true,  "Mostrar FVG",          group = G_VIS)
+visualMode   = input.string("Limpio", "Modo visual", options = ["Limpio", "Completo"], group = G_VIS,
+     tooltip = "Limpio: sólo BB del gráfico, etiquetas de COMPRA/VENTA, SL/TP, CHOCH de 1h/4h y el panel. Completo: además BB 1h/4h, zonas de liquidez, FVG, swings, barridos y CHOCH del LTF (las casillas de abajo sólo aplican en modo Completo).")
+fullVis      = visualMode == "Completo"
+showBbLtf    = input.bool(true,  "Mostrar BB del gráfico (LTF)", group = G_VIS)
+showBb1h     = input.bool(true,  "Mostrar BB 1h (escalón violeta)",  group = G_VIS) and fullVis
+showBb4h     = input.bool(true,  "Mostrar BB 4h (escalón naranja)",  group = G_VIS) and fullVis
+showLiqZone  = input.bool(true,  "Sombrear zonas de liquidez HTF (extremos BB)", group = G_VIS) and fullVis
+showFvg      = input.bool(true,  "Mostrar FVG",          group = G_VIS) and fullVis
 showStruct   = input.bool(true,  "Mostrar BOS / CHOCH de 4h y 1h", group = G_VIS)
-showLtfChoch = input.bool(true,  "Mostrar CHOCH del LTF", group = G_VIS)
-showSwings   = input.bool(true,  "Mostrar swings de liquidez LTF y barridos", group = G_VIS)
+showLtfChoch = input.bool(true,  "Mostrar CHOCH del LTF (rombos)", group = G_VIS) and fullVis
+showSwings   = input.bool(true,  "Mostrar swings de liquidez LTF y barridos", group = G_VIS) and fullVis
+showLegend   = input.bool(true,  "Mostrar leyenda en el panel", group = G_VIS)
 showLevels   = input.bool(true,  "Mostrar niveles SL / TP", group = G_VIS)
 showPanel    = input.bool(true,  "Mostrar panel de estado", group = G_VIS)
 panelPos     = input.string("Arriba derecha", "Posición del panel", options = ["Arriba derecha", "Arriba izquierda", "Abajo derecha", "Abajo izquierda"], group = G_VIS)
@@ -229,8 +233,12 @@ f_tfText(string tf) =>
 f_tierName(int t) =>
     t == 3 ? "SWING" : t == 2 ? "INTRADÍA" : t == 1 ? "SCALP" : "—"
 
-f_tierColor(int t) =>
-    t == 3 ? color.new(color.lime, 0) : t == 2 ? color.new(color.aqua, 0) : color.new(color.yellow, 0)
+// Color de las etiquetas por DIRECCIÓN (verde = compra, rojo = venta); el tipo va en el texto
+f_dirColor(int dir, int t) =>
+    dir == 1 ? color.new(color.lime, t == 3 ? 0 : t == 2 ? 15 : 35) : color.new(color.red, t == 3 ? 0 : t == 2 ? 15 : 35)
+
+f_tierDesc(int t, int dir) =>
+    t == 3 ? "SWING · a favor de 1h y 4h" : t == 2 ? "INTRADÍA · a favor de 1h" : "SCALP · contra 1h (rápido)"
 
 f_rr(int t) =>
     t == 3 ? rrSwing : t == 2 ? rrIntra : rrScalp
@@ -546,8 +554,8 @@ if inPos
     if allowUpgrade and newTier > posTier
         posTier     := newTier
         targetPrice := entryRef + posDir * riskR * f_rr(posTier)
-        label.new(bar_index, posDir == 1 ? low : high, "⬆ " + f_tierName(posTier) + (newEvt1h ? "\n" + htfName + " " + f_evtText(ev1) : ""),
-             style = posDir == 1 ? label.style_label_up : label.style_label_down, color = f_tierColor(posTier), textcolor = color.black, size = size.small)
+        label.new(bar_index, posDir == 1 ? low : high, "⬆ Ahora " + f_tierName(posTier) + " · dejar correr\nnuevo TP 1:" + str.tostring(f_rr(posTier)),
+             style = posDir == 1 ? label.style_label_up : label.style_label_down, color = f_dirColor(posDir, posTier), textcolor = color.black, size = size.small)
 
     // Breakeven al alcanzar X R (INTRADÍA / SWING)
     if moveToBE and posTier >= 2 and not beDone
@@ -607,8 +615,8 @@ if longSignal
         strategy.entry("Long", strategy.long, limit = entryRef, comment = f_tierName(posTier) + " L")
     else
         strategy.entry("Long", strategy.long, comment = f_tierName(posTier) + " L")
-    label.new(bar_index, low, f_tierName(posTier) + " ▲\n" + posType + "\nR:R 1:" + str.tostring(f_rr(posTier)),
-         style = label.style_label_up, color = f_tierColor(posTier), textcolor = color.black, size = posTier == 1 ? size.tiny : size.small)
+    label.new(bar_index, low, "COMPRA ▲ " + f_tierName(posTier) + "\n" + posType + "\nTP 1:" + str.tostring(f_rr(posTier)),
+         style = label.style_label_up, color = f_dirColor(1, posTier), textcolor = color.black, size = posTier == 1 ? size.small : size.normal)
 
 if shortSignal
     posDir      := -1
@@ -629,8 +637,8 @@ if shortSignal
         strategy.entry("Short", strategy.short, limit = entryRef, comment = f_tierName(posTier) + " S")
     else
         strategy.entry("Short", strategy.short, comment = f_tierName(posTier) + " S")
-    label.new(bar_index, high, f_tierName(posTier) + " ▼\n" + posType + "\nR:R 1:" + str.tostring(f_rr(posTier)),
-         style = label.style_label_down, color = f_tierColor(posTier), textcolor = color.black, size = posTier == 1 ? size.tiny : size.small)
+    label.new(bar_index, high, "VENTA ▼ " + f_tierName(posTier) + "\n" + posType + "\nTP 1:" + str.tostring(f_rr(posTier)),
+         style = label.style_label_down, color = f_dirColor(-1, posTier), textcolor = color.white, size = posTier == 1 ? size.small : size.normal)
 
 // Cierres por CHOCH en contra (si no se ha abierto ya una reversa en esta vela)
 if (exitLongLtf or exitLongHtf) and not shortSignal
@@ -650,11 +658,13 @@ if activeCtx
     tp1Limit   = hasPartial and tp1Valid ? tp1Raw : finalTp
     entryId    = posDir == 1 ? "Long" : "Short"
     pfx        = posDir == 1 ? "L" : "S"
+    stopInProfit = posDir == 1 ? stopPrice >= entryRef : stopPrice <= entryRef
+    lossTxt    = stopInProfit ? (beDone and f_trailOn(posTier) ? "Trailing" : "Breakeven") : "SL"
     if not partialDone
         strategy.exit(pfx + "-TP1", from_entry = entryId, qty_percent = partialPct, limit = tp1Limit, stop = stopPrice,
-             comment_profit = hasPartial and tp1Valid ? "TP parcial" : "TP " + f_tierName(posTier), comment_loss = beDone ? "BE/Trail" : "SL")
+             comment_profit = hasPartial and tp1Valid ? "TP parcial" : "TP " + f_tierName(posTier), comment_loss = lossTxt)
     strategy.exit(pfx + "-TP2", from_entry = entryId, limit = finalTp, stop = stopPrice,
-         comment_profit = "TP " + f_tierName(posTier), comment_loss = beDone ? "BE/Trail" : "SL")
+         comment_profit = "TP " + f_tierName(posTier), comment_loss = lossTxt)
 
 // =====================================================================================================
 // 8. VISUALIZACIÓN
@@ -685,11 +695,11 @@ fill(pUp1, pUp1z, color = color.new(color.red,   88), title = "Zona liquidez 1h 
 fill(pLo1, pLo1z, color = color.new(color.green, 88), title = "Zona liquidez 1h inferior")
 
 // --- Estructura: BOS / CHOCH de 4h y 1h ---
-if showStruct and newEvt4h and ev4 != 0
+if showStruct and newEvt4h and ev4 != 0 and (fullVis or math.abs(ev4) == 2)
     bull = ev4 > 0
     line.new(bar_index - 1, evl4, bar_index, evl4, extend = extend.left, color = bull ? color.green : color.red, width = 2, style = ev4 == 2 or ev4 == -2 ? line.style_solid : line.style_dashed)
     label.new(bar_index, evl4, f_tfText(tfMacro) + " " + f_evtText(ev4), style = bull ? label.style_label_up : label.style_label_down, color = bull ? color.new(color.green, 10) : color.new(color.red, 10), textcolor = color.white, size = size.small)
-if showStruct and newEvt1h and ev1 != 0
+if showStruct and newEvt1h and ev1 != 0 and (fullVis or math.abs(ev1) == 2)
     bull = ev1 > 0
     line.new(bar_index - 1, evl1, bar_index, evl1, color = bull ? color.new(color.green, 40) : color.new(color.red, 40), width = 1, style = ev1 == 2 or ev1 == -2 ? line.style_solid : line.style_dotted)
     label.new(bar_index, evl1, htfName + " " + f_evtText(ev1), style = bull ? label.style_label_up : label.style_label_down, color = bull ? color.new(color.lime, 30) : color.new(color.orange, 30), textcolor = color.black, size = size.tiny)
@@ -725,48 +735,60 @@ f_trendTxt(int t) =>
 f_trendCol(int t) =>
     t == 1 ? color.new(color.green, 20) : t == -1 ? color.new(color.red, 20) : color.new(color.gray, 20)
 
-var table panel = table.new(f_pos(panelPos), 2, 12, bgcolor = color.new(color.black, 20), border_color = color.new(color.gray, 60), border_width = 1, frame_color = color.gray, frame_width = 1)
+var table panel = table.new(f_pos(panelPos), 2, 20, bgcolor = color.new(color.black, 15), border_color = color.new(color.gray, 60), border_width = 1, frame_color = color.gray, frame_width = 1)
+
+// Escribe una fila (etiqueta | valor) y devuelve el índice de la siguiente
+f_row(int r, string k, string v, color bg, color tc) =>
+    table.cell(panel, 0, r, k, text_color = color.white, text_size = size.small, text_halign = text.align_left)
+    table.cell(panel, 1, r, v, bgcolor = bg, text_color = tc, text_size = size.small, text_halign = text.align_left)
+    r + 1
 
 if showPanel and barstate.islast
-    txt = color.white
-    sz  = size.small
-    table.cell(panel, 0, 0, "SMC MTF BB", text_color = txt, text_size = sz)
-    table.cell(panel, 1, 0, entryEngine, text_color = txt, text_size = sz)
+    table.clear(panel, 0, 0, 1, 19)
+    w = color.white
+    int r = 0
+    r := f_row(r, "SMC MTF · " + ltfName, entryEngine, na, w)
 
-    table.cell(panel, 0, 1, "Estructura " + f_tfText(tfMacro), text_color = txt, text_size = sz)
-    table.cell(panel, 1, 1, f_trendTxt(tr4) + (cl4 > mid4 ? " · >media" : " · <media"), bgcolor = f_trendCol(tr4), text_color = txt, text_size = sz)
+    // Tendencias
+    r := f_row(r, f_tfText(tfMacro), f_trendTxt(tr4) + (cl4 > mid4 ? " · sobre media" : " · bajo media"), f_trendCol(tr4), w)
+    r := f_row(r, htfName, f_trendTxt(tr1) + " · " + f_evtText(ev1), f_trendCol(tr1), w)
+    r := f_row(r, ltfName, f_trendTxt(trL) + " · " + f_evtText(evL), f_trendCol(trL), w)
 
-    table.cell(panel, 0, 2, "Estructura " + htfName, text_color = txt, text_size = sz)
-    table.cell(panel, 1, 2, f_trendTxt(tr1) + " · " + f_evtText(ev1), bgcolor = f_trendCol(tr1), text_color = txt, text_size = sz)
+    // Sesgo y qué hacer
+    biasTxt = bullTrend ? "ALCISTA → priorizar COMPRAS" : bearTrend ? "BAJISTA → priorizar VENTAS" : "MIXTO → sólo scalps rápidos"
+    biasCol = bullTrend ? color.new(color.green, 10) : bearTrend ? color.new(color.red, 10) : color.new(color.gray, 30)
+    r := f_row(r, "SESGO (4h + 1h)", biasTxt, biasCol, w)
+    r := f_row(r, "Una VENTA ahora sería", f_tierDesc(f_tier(-1), -1), color.new(color.red, f_tier(-1) == 3 ? 20 : f_tier(-1) == 2 ? 45 : 75), w)
+    r := f_row(r, "Una COMPRA ahora sería", f_tierDesc(f_tier(1), 1), color.new(color.green, f_tier(1) == 3 ? 20 : f_tier(1) == 2 ? 45 : 75), w)
+    nextTxt = bearTrend ? (trL == -1 ? "Esperar rebote a BB superior (no vender en plena caída)" : "Atento: CHOCH ↓ en " + ltfName + " = VENTA") :
+         bullTrend ? (trL == 1 ? "Esperar retroceso a BB inferior (no comprar en plena subida)" : "Atento: CHOCH ↑ en " + ltfName + " = COMPRA") :
+         "Scalp: CHOCH en " + ltfName + " tras barrer liquidez"
+    r := f_row(r, "Próximo gatillo", nextTxt, na, color.yellow)
 
-    table.cell(panel, 0, 3, "Estructura " + ltfName, text_color = txt, text_size = sz)
-    table.cell(panel, 1, 3, f_trendTxt(trL) + " · " + f_evtText(evL), bgcolor = f_trendCol(trL), text_color = txt, text_size = sz)
+    // Posición
+    posTxt = strategy.position_size > 0 ? "COMPRADO · " + f_tierName(posTier) : strategy.position_size < 0 ? "VENDIDO · " + f_tierName(posTier) : pending ? "Orden pendiente" : "Sin posición"
+    posCol = strategy.position_size > 0 ? color.new(color.green, 20) : strategy.position_size < 0 ? color.new(color.red, 20) : na
+    r := f_row(r, "Posición", posTxt, posCol, w)
+    if strategy.position_size != 0
+        rNow = riskR > 0 ? (close - entryRef) * posDir / riskR : na
+        r := f_row(r, "Origen", posType, na, w)
+        r := f_row(r, "Ganancia / objetivo", (na(rNow) ? "—" : str.tostring(rNow, "#.##") + "R") + " / " + (posTier == 3 and swingNoFixedTP ? "trailing" : str.tostring(f_rr(posTier), "#.##") + "R"), na, w)
 
-    table.cell(panel, 0, 4, "Tipo si entra LARGO", text_color = txt, text_size = sz)
-    table.cell(panel, 1, 4, f_tierName(f_tier(1)), bgcolor = color.new(f_tierColor(f_tier(1)), 50), text_color = txt, text_size = sz)
+    // Aviso de timeframe
+    if tfMismatch
+        r := f_row(r, "⚠ Timeframe", "Poné el gráfico en " + f_tfText(tfEntry) + " (ahora " + ltfName + ")" + (blockOnTfMismatch ? " · entradas bloqueadas" : ""), color.new(color.orange, 20), w)
 
-    table.cell(panel, 0, 5, "Tipo si entra CORTO", text_color = txt, text_size = sz)
-    table.cell(panel, 1, 5, f_tierName(f_tier(-1)), bgcolor = color.new(f_tierColor(f_tier(-1)), 50), text_color = txt, text_size = sz)
-
-    table.cell(panel, 0, 6, "Posición", text_color = txt, text_size = sz)
-    table.cell(panel, 1, 6, strategy.position_size > 0 ? "LARGO · " + f_tierName(posTier) : strategy.position_size < 0 ? "CORTO · " + f_tierName(posTier) : pending ? "Orden pendiente" : "PLANA",
-         bgcolor = strategy.position_size != 0 ? color.new(f_tierColor(posTier), 40) : na, text_color = txt, text_size = sz)
-
-    table.cell(panel, 0, 7, "Origen", text_color = txt, text_size = sz)
-    table.cell(panel, 1, 7, posType == "" ? "—" : posType, text_color = txt, text_size = sz)
-
-    rNow = strategy.position_size != 0 and riskR > 0 ? (close - entryRef) * posDir / riskR : na
-    table.cell(panel, 0, 8, "R actual / objetivo", text_color = txt, text_size = sz)
-    table.cell(panel, 1, 8, na(rNow) ? "—" : str.tostring(rNow, "#.##") + "R / " + (posTier == 3 and swingNoFixedTP ? "trailing" : str.tostring(f_rr(posTier), "#.##") + "R"), text_color = txt, text_size = sz)
-
-    table.cell(panel, 0, 9, "R:R Scalp/Intra/Swing", text_color = txt, text_size = sz)
-    table.cell(panel, 1, 9, str.tostring(rrScalp) + " / " + str.tostring(rrIntra) + " / " + str.tostring(rrSwing), text_color = txt, text_size = sz)
-
-    table.cell(panel, 0, 10, "Gráfico / LTF", text_color = txt, text_size = sz)
-    table.cell(panel, 1, 10, ltfName + " / " + f_tfText(tfEntry), bgcolor = tfMismatch ? color.new(color.orange, 20) : color.new(color.green, 60), text_color = txt, text_size = sz)
-
-    table.cell(panel, 0, 11, tfMismatch ? "⚠ Cambia el gráfico a " + f_tfText(tfEntry) : "", text_color = color.orange, text_size = sz)
-    table.cell(panel, 1, 11, tfMismatch and blockOnTfMismatch ? "Entradas bloqueadas" : "", text_color = color.orange, text_size = sz)
+    // Leyenda
+    if showLegend
+        r := f_row(r, "LEYENDA", "", color.new(color.gray, 60), w)
+        r := f_row(r, "Etiqueta verde ▲", "COMPRA (SCALP / INTRADÍA / SWING)", color.new(color.lime, 30), color.black)
+        r := f_row(r, "Etiqueta roja ▼", "VENTA (SCALP / INTRADÍA / SWING)", color.new(color.red, 30), w)
+        r := f_row(r, "Líneas roja / verde", "Stop Loss / Take Profit activos", na, w)
+        r := f_row(r, "Fondo verde / rojo", "4h y 1h de acuerdo (sesgo)", na, w)
+        r := f_row(r, "Flechas de TradingView", "Órdenes ejecutadas (entrada / salida)", na, w)
+        if fullVis
+            r := f_row(r, "Escalón violeta / naranja", "BB 1h / BB 4h (zonas de liquidez)", na, w)
+            r := f_row(r, "Rombo / $", "CHOCH del " + ltfName + " / barrido de liquidez", na, w)
 
 // =====================================================================================================
 // 10. ALERTAS (usar "Crear alerta" -> "alert() function calls only")

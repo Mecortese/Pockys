@@ -29,6 +29,16 @@ automáticamente (etiqueta `⬆ INTRADÍA` / `⬆ SWING`): se amplía el TP, se 
 
 En 1m ajusta comisión y slippage en *Properties*: con muchas operaciones pesan mucho en el resultado.
 
+### Cómo leer el gráfico
+- **Etiqueta verde ▲ "COMPRA"** / **roja ▼ "VENTA"** = señal de entrada. El texto indica el tipo (SCALP / INTRADÍA / SWING) y el TP.
+  El color indica la **dirección**; cuanto más opaca, más fuerte es la confluencia.
+- **Línea roja / verde** = Stop Loss / Take Profit de la operación abierta.
+- **Fondo verde / rojo** = 4h y 1h están de acuerdo (sesgo alcista / bajista).
+- **Flechas de TradingView** (azul / rojo / violeta) = órdenes ya ejecutadas por el backtest, no son señales nuevas.
+- El panel dice el **sesgo**, qué tipo sería una compra o una venta *en este momento* y cuál es el **próximo gatillo** a esperar.
+- **Modo visual "Limpio"** (por defecto) oculta BB de 1h/4h, zonas de liquidez, FVG y barridos; "Completo" los muestra.
+- Usar en el gráfico de **15m / 5m / 1m**. En 1h o 4h las bandas de 1h/4h dejan de tener sentido y las entradas se bloquean.
+
 ### Uso
 1. Pega el script en el Pine Editor de TradingView y pulsa *Add to chart*.
 2. Pon el gráfico en el mismo timeframe que el input **LTF · Entrada** (por defecto 5m).
