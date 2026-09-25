@@ -1,0 +1,553 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// =====================================================================================================
+//  SMC Multi-Timeframe Bollinger Pullback Strategy
+// -----------------------------------------------------------------------------------------------------
+//  Idea general:
+//   1) Filtro de tendencia multi-temporal:
+//        - MTF1 (4h): estructura de mercado (BOS/CHOCH por fractales) + precio vs. media central de BB.
+//        - MTF2 (1h): estructura de mercado (BOS/CHOCH por fractales).
+//   2) Entrada en el LTF (timeframe del gráfico) en retrocesos hacia la banda de Bollinger
+//      contraria a la tendencia (banda inferior en tendencia alcista / superior en bajista).
+//   3) Confirmación SMC: toma de liquidez (barrido de un swing previo, toque de un FVG o de las
+//      bandas de BB de 4h/1h usadas como proxies de liquidez) cerca de la banda.
+//   4) Confirmación de giro: pin bar, envolvente o cruce de vuelta de la banda.
+//   5) Gestión de riesgo: SL por debajo/encima de la vela o de la zona de liquidez (+ ATR),
+//      TP por ratio R:R fijo, TP parcial opcional en la banda opuesta del LTF y cierre de la
+//      posición si la estructura de 1h hace un CHOCH en contra.
+//
+//  Anti-repintado: todos los datos de 4h y 1h se solicitan con el patrón
+//  request.security(..., expr[1], lookahead_on), es decir, sólo se usan velas HTF CERRADAS.
+// =====================================================================================================
+//@version=5
+strategy("SMC MTF Bollinger Pullback Strategy",
+     shorttitle         = "SMC-MTF-BB",
+     overlay            = true,
+     initial_capital    = 10000,
+     default_qty_type   = strategy.percent_of_equity,
+     default_qty_value  = 10,
+     commission_type    = strategy.commission.percent,
+     commission_value   = 0.04,
+     slippage           = 1,
+     pyramiding         = 0,
+     calc_on_every_tick = false,
+     max_boxes_count    = 500,
+     max_lines_count    = 500,
+     max_labels_count   = 500,
+     max_bars_back      = 500)
+
+// =====================================================================================================
+// 1. INPUTS (Panel de control)
+// =====================================================================================================
+G_TF   = "⏱ Timeframes"
+G_BB   = "📈 Bandas de Bollinger"
+G_MS   = "🏛 Estructura de mercado (BOS / CHOCH)"
+G_SMC  = "💧 Filtros SMC (Liquidez / FVG)"
+G_REV  = "🔄 Confirmación de giro"
+G_RISK = "🛡 Gestión de riesgo"
+G_VIS  = "🎨 Visualización"
+G_DATE = "📅 Rango de backtest"
+
+// --- Timeframes ---
+tfMacro   = input.timeframe("240", "MTF1 · Macro-tendencia", group = G_TF)
+tfConfirm = input.timeframe("60",  "MTF2 · Confirmación",    group = G_TF)
+tfEntry   = input.timeframe("15",  "LTF · Entrada (debe coincidir con el gráfico)", options = ["60", "15", "5", "1"], group = G_TF,
+     tooltip = "La estrategia ejecuta órdenes en el timeframe del gráfico. Selecciona aquí el LTF deseado y abre el gráfico en ese mismo timeframe. Si no coinciden se muestra un aviso y, opcionalmente, se bloquean las entradas.")
+blockOnTfMismatch = input.bool(true, "Bloquear entradas si el gráfico ≠ LTF", group = G_TF)
+
+// --- Bollinger ---
+bbLen  = input.int(20,    "Longitud",            minval = 1,   group = G_BB)
+bbMult = input.float(2.0, "Desviación estándar", minval = 0.1, step = 0.1, group = G_BB)
+bbSrc  = input.source(close, "Fuente (LTF)", group = G_BB)
+
+// --- Estructura ---
+pivLenHTF = input.int(3, "Longitud fractal HTF (4h / 1h)", minval = 1, group = G_MS,
+     tooltip = "Número de velas a cada lado para confirmar un swing high/low (fractal) en 4h y 1h.")
+use4hBasisFilter = input.bool(true, "Exigir precio 4h vs. media central BB 4h", group = G_MS)
+use1hStructure   = input.bool(true, "Exigir estructura 1h alineada",            group = G_MS)
+
+// --- SMC ---
+useSmcFilter   = input.bool(true, "Habilitar confirmación SMC (toma de liquidez)", group = G_SMC)
+smcUseSweep    = input.bool(true, "· Barrido de swing previo del LTF",            group = G_SMC)
+smcUseFvg      = input.bool(true, "· Toque de FVG (LTF y 1h)",                    group = G_SMC)
+smcUseHtfLiq   = input.bool(true, "· Toque de bandas BB 4h / 1h (liquidez HTF)",  group = G_SMC)
+pivLenLTF      = input.int(5,  "Longitud fractal LTF (swings de liquidez)", minval = 1, group = G_SMC)
+smcLookback    = input.int(10, "Ventana de validez del evento SMC (velas)", minval = 1, group = G_SMC)
+nearBandAtr    = input.float(1.0, "Distancia máx. a la banda (x ATR)", minval = 0, step = 0.1, group = G_SMC,
+     tooltip = "El evento de liquidez sólo cuenta si ocurre a menos de esta distancia (en ATRs) de la banda de Bollinger del LTF.")
+fvgMinAtr      = input.float(0.0, "Tamaño mínimo FVG (x ATR)", minval = 0, step = 0.05, group = G_SMC)
+maxFvgBoxes    = input.int(20, "Máx. FVG activos por dirección (LTF)", minval = 1, maxval = 100, group = G_SMC)
+
+// --- Giro ---
+useRevFilter  = input.bool(true, "Habilitar confirmación de giro", group = G_REV)
+revPin        = input.bool(true, "· Pin bar",                       group = G_REV)
+revEngulf     = input.bool(true, "· Vela envolvente",               group = G_REV)
+revCrossBack  = input.bool(true, "· Cruce de vuelta de la banda",   group = G_REV)
+pinWickRatio  = input.float(0.6, "Pin bar: mecha mínima (% del rango)", minval = 0.3, maxval = 0.95, step = 0.05, group = G_REV)
+bbTouchLookback = input.int(3, "Toque de banda válido durante (velas)", minval = 0, group = G_REV,
+     tooltip = "0 = el toque de la banda debe producirse en la misma vela de la señal.")
+
+// --- Riesgo ---
+slMode      = input.string("Zona liquidez/FVG", "Referencia del Stop Loss", options = ["Vela de entrada", "Zona liquidez/FVG"], group = G_RISK)
+atrLen      = input.int(14, "Longitud ATR", minval = 1, group = G_RISK)
+slAtrMult   = input.float(1.0, "Colchón SL (x ATR)", minval = 0, step = 0.1, group = G_RISK)
+rrRatio     = input.float(2.0, "Ratio Riesgo:Recompensa (1:X)", minval = 0.5, step = 0.5, group = G_RISK)
+usePartial  = input.bool(true, "TP parcial en la banda BB opuesta (LTF)", group = G_RISK)
+partialPct  = input.int(50, "% de la posición a cerrar en TP parcial", minval = 1, maxval = 99, group = G_RISK)
+closeOnChoch = input.bool(true, "Cerrar posición si hay CHOCH de 1h en contra", group = G_RISK)
+allowLong   = input.bool(true, "Permitir largos",  group = G_RISK)
+allowShort  = input.bool(true, "Permitir cortos",  group = G_RISK)
+
+// --- Visual ---
+showBbLtf   = input.bool(true, "Mostrar BB LTF",            group = G_VIS)
+showBb1h    = input.bool(true, "Mostrar BB MTF2 (1h)",      group = G_VIS)
+showBb4h    = input.bool(true, "Mostrar BB MTF1 (4h)",      group = G_VIS)
+showLiqZone = input.bool(true, "Sombrear zonas de liquidez HTF (extremos BB)", group = G_VIS)
+showFvg     = input.bool(true, "Mostrar FVG",               group = G_VIS)
+showStruct  = input.bool(true, "Mostrar BOS / CHOCH",       group = G_VIS)
+showSwings  = input.bool(true, "Mostrar swings de liquidez LTF y barridos", group = G_VIS)
+showLevels  = input.bool(true, "Mostrar niveles SL / TP",   group = G_VIS)
+showPanel   = input.bool(true, "Mostrar panel de estado",   group = G_VIS)
+panelPos    = input.string("Arriba derecha", "Posición del panel", options = ["Arriba derecha", "Arriba izquierda", "Abajo derecha", "Abajo izquierda"], group = G_VIS)
+
+// --- Fechas ---
+useDateFilter = input.bool(false, "Limitar rango de fechas", group = G_DATE)
+startDate     = input.time(timestamp("2023-01-01T00:00:00"), "Desde", group = G_DATE)
+endDate       = input.time(timestamp("2099-12-31T00:00:00"), "Hasta", group = G_DATE)
+inDateRange   = not useDateFilter or (time >= startDate and time <= endDate)
+
+// =====================================================================================================
+// 2. FUNCIÓN HTF: Bollinger + Estructura (BOS/CHOCH por fractales) + FVG
+//    Se ejecuta dentro de request.security() en el contexto del timeframe superior.
+//    Devuelve los valores de la vela HTF ANTERIOR ([1]) -> junto con lookahead_on = sin repintado.
+// =====================================================================================================
+// Códigos de evento de estructura: 1 = BOS alcista, 2 = CHOCH alcista, -1 = BOS bajista, -2 = CHOCH bajista
+f_htf(simple int _len, simple float _mult, simple int _piv) =>
+    [bbMid, bbUp, bbLo] = ta.bb(close, _len, _mult)
+    ph = ta.pivothigh(high, _piv, _piv)
+    pl = ta.pivotlow(low, _piv, _piv)
+
+    // --- Estructura de mercado ---
+    var float swingHigh = na     // último swing high confirmado (liquidez superior)
+    var float swingLow  = na     // último swing low confirmado (liquidez inferior)
+    var bool  highBroken = true
+    var bool  lowBroken  = true
+    var int   trend    = 0       // 1 alcista, -1 bajista, 0 indefinida
+    var int   evtType  = 0
+    var int   evtCount = 0       // contador incremental para detectar eventos nuevos en el LTF
+    var float evtLevel = na
+
+    if not na(ph)
+        swingHigh  := ph
+        highBroken := false
+    if not na(pl)
+        swingLow  := pl
+        lowBroken := false
+
+    // Ruptura al cierre de un swing high: BOS si ya éramos alcistas, CHOCH si veníamos bajistas/neutrales
+    if not highBroken and close > swingHigh
+        highBroken := true
+        evtType    := trend == 1 ? 1 : 2
+        evtLevel   := swingHigh
+        evtCount   += 1
+        trend      := 1
+    else if not lowBroken and close < swingLow
+        lowBroken := true
+        evtType   := trend == -1 ? -1 : -2
+        evtLevel  := swingLow
+        evtCount  += 1
+        trend     := -1
+
+    // --- FVG (desequilibrio de 3 velas). Se guarda el más reciente no mitigado de cada tipo ---
+    var float bullTop = na
+    var float bullBot = na
+    var float bearTop = na
+    var float bearBot = na
+    if low > high[2]            // FVG alcista: hueco entre el máximo de hace 2 velas y el mínimo actual
+        bullTop := low
+        bullBot := high[2]
+    if high < low[2]            // FVG bajista: hueco entre el mínimo de hace 2 velas y el máximo actual
+        bearTop := low[2]
+        bearBot := high
+    if not na(bullBot) and close < bullBot   // mitigado/invalidado
+        bullTop := na
+        bullBot := na
+    if not na(bearTop) and close > bearTop
+        bearTop := na
+        bearBot := na
+
+    [trend[1], evtType[1], evtCount[1], evtLevel[1], bbMid[1], bbUp[1], bbLo[1], close[1],
+     swingHigh[1], swingLow[1], bullTop[1], bullBot[1], bearTop[1], bearBot[1]]
+
+// --- MTF1 (4h) ---
+[tr4, ev4, evc4, evl4, mid4, up4, lo4, cl4, sh4, sl4, bfT4, bfB4, sfT4, sfB4] = request.security(syminfo.tickerid, tfMacro, f_htf(bbLen, bbMult, pivLenHTF), lookahead = barmerge.lookahead_on)
+
+// --- MTF2 (1h) ---
+[tr1, ev1, evc1, evl1, mid1, up1, lo1, cl1, sh1, sl1, bfT1, bfB1, sfT1, sfB1] = request.security(syminfo.tickerid, tfConfirm, f_htf(bbLen, bbMult, pivLenHTF), lookahead = barmerge.lookahead_on)
+
+// =====================================================================================================
+// 3. LTF: Bollinger, ATR, swings de liquidez y FVG
+// =====================================================================================================
+[bbMid, bbUp, bbLo] = ta.bb(bbSrc, bbLen, bbMult)
+atr = ta.atr(atrLen)
+
+// --- Validación de timeframe ---
+tfMismatch = timeframe.period != tfEntry
+canTrade   = inDateRange and (not blockOnTfMismatch or not tfMismatch)
+
+// --- Swings de liquidez del LTF (fractales) ---
+phL = ta.pivothigh(high, pivLenLTF, pivLenLTF)
+plL = ta.pivotlow(low,  pivLenLTF, pivLenLTF)
+var float ltfSwingHigh = na
+var float ltfSwingLow  = na
+var line  ltfHighLine  = na
+var line  ltfLowLine   = na
+
+if not na(phL)
+    ltfSwingHigh := phL
+    if showSwings
+        ltfHighLine := line.new(bar_index - pivLenLTF, phL, bar_index, phL, color = color.new(color.orange, 30), style = line.style_dotted, extend = extend.right)
+if not na(plL)
+    ltfSwingLow := plL
+    if showSwings
+        ltfLowLine := line.new(bar_index - pivLenLTF, plL, bar_index, plL, color = color.new(color.aqua, 30), style = line.style_dotted, extend = extend.right)
+
+// Barrido (sweep): la mecha rompe el swing pero la vela cierra de vuelta dentro -> toma de liquidez
+sweepLow  = not na(ltfSwingLow)  and low  < ltfSwingLow  and close > ltfSwingLow
+sweepHigh = not na(ltfSwingHigh) and high > ltfSwingHigh and close < ltfSwingHigh
+
+if sweepLow
+    if showSwings and not na(ltfLowLine)
+        line.set_x2(ltfLowLine, bar_index)
+        line.set_extend(ltfLowLine, extend.none)
+    ltfSwingLow := na       // la liquidez ya fue tomada
+if sweepHigh
+    if showSwings and not na(ltfHighLine)
+        line.set_x2(ltfHighLine, bar_index)
+        line.set_extend(ltfHighLine, extend.none)
+    ltfSwingHigh := na
+
+// --- FVG del LTF (gestión con arrays de cajas) ---
+var array<box>   bullFvgBoxes = array.new<box>()
+var array<float> bullFvgTop   = array.new<float>()
+var array<float> bullFvgBot   = array.new<float>()
+var array<box>   bearFvgBoxes = array.new<box>()
+var array<float> bearFvgTop   = array.new<float>()
+var array<float> bearFvgBot   = array.new<float>()
+
+newBullFvg = low > high[2]  and (low - high[2]) >= fvgMinAtr * nz(atr)
+newBearFvg = high < low[2]  and (low[2] - high) >= fvgMinAtr * nz(atr)
+
+if newBullFvg
+    array.push(bullFvgTop, low)
+    array.push(bullFvgBot, high[2])
+    array.push(bullFvgBoxes, showFvg ? box.new(bar_index - 2, low, bar_index, high[2], border_color = color.new(color.green, 60), bgcolor = color.new(color.green, 85), extend = extend.right, text = "FVG", text_color = color.new(color.green, 30), text_size = size.tiny, text_halign = text.align_left) : na)
+    if array.size(bullFvgTop) > maxFvgBoxes
+        box.delete(array.shift(bullFvgBoxes))
+        array.shift(bullFvgTop)
+        array.shift(bullFvgBot)
+
+if newBearFvg
+    array.push(bearFvgTop, low[2])
+    array.push(bearFvgBot, high)
+    array.push(bearFvgBoxes, showFvg ? box.new(bar_index - 2, low[2], bar_index, high, border_color = color.new(color.red, 60), bgcolor = color.new(color.red, 85), extend = extend.right, text = "FVG", text_color = color.new(color.red, 30), text_size = size.tiny, text_halign = text.align_left) : na)
+    if array.size(bearFvgTop) > maxFvgBoxes
+        box.delete(array.shift(bearFvgBoxes))
+        array.shift(bearFvgTop)
+        array.shift(bearFvgBot)
+
+// Toque y mitigación de FVG (se recorre hacia atrás para poder eliminar elementos)
+bool touchBullFvgLtf = false
+bool touchBearFvgLtf = false
+
+if array.size(bullFvgTop) > 0
+    for i = array.size(bullFvgTop) - 1 to 0
+        t = array.get(bullFvgTop, i)
+        b = array.get(bullFvgBot, i)
+        // Ignorar la vela que crea el FVG
+        if not (newBullFvg and i == array.size(bullFvgTop) - 1)
+            if low <= t and high >= b
+                touchBullFvgLtf := true
+            if close < b  // FVG alcista invalidado
+                bx = array.remove(bullFvgBoxes, i)
+                if not na(bx)
+                    box.set_right(bx, bar_index)
+                    box.set_extend(bx, extend.none)
+                    box.set_bgcolor(bx, color.new(color.gray, 90))
+                    box.set_border_color(bx, color.new(color.gray, 70))
+                array.remove(bullFvgTop, i)
+                array.remove(bullFvgBot, i)
+
+if array.size(bearFvgTop) > 0
+    for i = array.size(bearFvgTop) - 1 to 0
+        t = array.get(bearFvgTop, i)
+        b = array.get(bearFvgBot, i)
+        if not (newBearFvg and i == array.size(bearFvgTop) - 1)
+            if high >= b and low <= t
+                touchBearFvgLtf := true
+            if close > t  // FVG bajista invalidado
+                bx = array.remove(bearFvgBoxes, i)
+                if not na(bx)
+                    box.set_right(bx, bar_index)
+                    box.set_extend(bx, extend.none)
+                    box.set_bgcolor(bx, color.new(color.gray, 90))
+                    box.set_border_color(bx, color.new(color.gray, 70))
+                array.remove(bearFvgTop, i)
+                array.remove(bearFvgBot, i)
+
+// Toque de FVG de 1h (MTF2)
+touchBullFvg1h = not na(bfT1) and low <= bfT1 and high >= bfB1
+touchBearFvg1h = not na(sfB1) and high >= sfB1 and low <= sfT1
+
+// Dibujo del FVG activo de 1h (una caja por dirección, se renueva al cambiar)
+var box fvg1hBull = na
+var box fvg1hBear = na
+if showFvg
+    if nz(bfT1, -1.0) != nz(bfT1[1], -1.0) or nz(bfB1, -1.0) != nz(bfB1[1], -1.0)
+        if not na(fvg1hBull)
+            box.set_right(fvg1hBull, bar_index)
+            box.set_extend(fvg1hBull, extend.none)
+        fvg1hBull := na(bfT1) ? na : box.new(bar_index, bfT1, bar_index + 1, bfB1, border_color = color.new(color.teal, 40), border_style = line.style_dashed, bgcolor = color.new(color.teal, 88), extend = extend.right, text = "FVG 1h", text_color = color.teal, text_size = size.tiny, text_halign = text.align_right)
+    if nz(sfT1, -1.0) != nz(sfT1[1], -1.0) or nz(sfB1, -1.0) != nz(sfB1[1], -1.0)
+        if not na(fvg1hBear)
+            box.set_right(fvg1hBear, bar_index)
+            box.set_extend(fvg1hBear, extend.none)
+        fvg1hBear := na(sfT1) ? na : box.new(bar_index, sfT1, bar_index + 1, sfB1, border_color = color.new(color.maroon, 40), border_style = line.style_dashed, bgcolor = color.new(color.maroon, 88), extend = extend.right, text = "FVG 1h", text_color = color.maroon, text_size = size.tiny, text_halign = text.align_right)
+
+// =====================================================================================================
+// 4. FILTRO DE TENDENCIA MULTI-TEMPORAL
+// =====================================================================================================
+bullTrend = tr4 == 1 and (not use1hStructure or tr1 == 1) and (not use4hBasisFilter or cl4 > mid4)
+bearTrend = tr4 == -1 and (not use1hStructure or tr1 == -1) and (not use4hBasisFilter or cl4 < mid4)
+
+// =====================================================================================================
+// 5. LÓGICA DE ENTRADA
+// =====================================================================================================
+// 5.1 Retroceso a la banda de Bollinger del LTF
+touchLower = low  <= bbLo
+touchUpper = high >= bbUp
+recentLowerTouch = nz(ta.barssince(touchLower), 9999) <= bbTouchLookback
+recentUpperTouch = nz(ta.barssince(touchUpper), 9999) <= bbTouchLookback
+
+// 5.2 Evento SMC (toma de liquidez) cerca de la banda
+nearLower = low  <= bbLo + nearBandAtr * atr
+nearUpper = high >= bbUp - nearBandAtr * atr
+
+bullLiqEvent = nearLower and (
+     (smcUseSweep  and sweepLow) or
+     (smcUseFvg    and (touchBullFvgLtf or touchBullFvg1h)) or
+     (smcUseHtfLiq and ((not na(lo1) and low <= lo1) or (not na(lo4) and low <= lo4))))
+bearLiqEvent = nearUpper and (
+     (smcUseSweep  and sweepHigh) or
+     (smcUseFvg    and (touchBearFvgLtf or touchBearFvg1h)) or
+     (smcUseHtfLiq and ((not na(up1) and high >= up1) or (not na(up4) and high >= up4))))
+
+var int   lastBullLiqBar = na
+var int   lastBearLiqBar = na
+var float bullLiqLow     = na   // mínimo registrado en la zona de liquidez (para el SL)
+var float bearLiqHigh    = na   // máximo registrado en la zona de liquidez (para el SL)
+
+if bullLiqEvent
+    bullLiqLow     := na(lastBullLiqBar) or bar_index - lastBullLiqBar > smcLookback ? low : math.min(bullLiqLow, low)
+    lastBullLiqBar := bar_index
+if bearLiqEvent
+    bearLiqHigh    := na(lastBearLiqBar) or bar_index - lastBearLiqBar > smcLookback ? high : math.max(bearLiqHigh, high)
+    lastBearLiqBar := bar_index
+
+bullSmcOk = not useSmcFilter or (not na(lastBullLiqBar) and bar_index - lastBullLiqBar <= smcLookback)
+bearSmcOk = not useSmcFilter or (not na(lastBearLiqBar) and bar_index - lastBearLiqBar <= smcLookback)
+
+// 5.3 Confirmación de giro
+rng        = high - low
+bodyTop    = math.max(open, close)
+bodyBot    = math.min(open, close)
+lowerWick  = bodyBot - low
+upperWick  = high - bodyTop
+
+bullPin    = rng > 0 and lowerWick >= pinWickRatio * rng and close >= low + rng * 0.5
+bearPin    = rng > 0 and upperWick >= pinWickRatio * rng and close <= high - rng * 0.5
+bullEngulf = close > open and close[1] < open[1] and close >= open[1] and open <= close[1]
+bearEngulf = close < open and close[1] > open[1] and close <= open[1] and open >= close[1]
+bullCross  = ta.crossover(close, bbLo)
+bearCross  = ta.crossunder(close, bbUp)
+
+bullRevOk = not useRevFilter or (revPin and bullPin) or (revEngulf and bullEngulf) or (revCrossBack and bullCross)
+bearRevOk = not useRevFilter or (revPin and bearPin) or (revEngulf and bearEngulf) or (revCrossBack and bearCross)
+
+// 5.4 Señales finales (sólo con posición plana)
+flat = strategy.position_size == 0
+longSignal  = allowLong  and canTrade and flat and bullTrend and recentLowerTouch and bullSmcOk and bullRevOk and barstate.isconfirmed
+shortSignal = allowShort and canTrade and flat and bearTrend and recentUpperTouch and bearSmcOk and bearRevOk and barstate.isconfirmed
+
+// =====================================================================================================
+// 6. GESTIÓN DE RIESGO Y EJECUCIÓN
+// =====================================================================================================
+var float stopPrice   = na
+var float targetPrice = na
+
+// Cálculo del SL según el modo elegido
+longSlBase  = slMode == "Zona liquidez/FVG" and not na(bullLiqLow)  and useSmcFilter ? math.min(low,  bullLiqLow)  : low
+shortSlBase = slMode == "Zona liquidez/FVG" and not na(bearLiqHigh) and useSmcFilter ? math.max(high, bearLiqHigh) : high
+longSl  = longSlBase  - slAtrMult * atr
+shortSl = shortSlBase + slAtrMult * atr
+
+if longSignal and close > longSl
+    stopPrice   := longSl
+    targetPrice := close + (close - longSl) * rrRatio
+    strategy.entry("Long", strategy.long, comment = "Long")
+    lastBullLiqBar := na     // consumir el evento de liquidez
+
+if shortSignal and close < shortSl
+    stopPrice   := shortSl
+    targetPrice := close - (shortSl - close) * rrRatio
+    strategy.entry("Short", strategy.short, comment = "Short")
+    lastBearLiqBar := na
+
+// Recalcular el TP con el precio real de entrada una vez abierta la posición (manteniendo el R:R)
+if strategy.position_size > 0 and not na(stopPrice)
+    targetPrice := strategy.position_avg_price + (strategy.position_avg_price - stopPrice) * rrRatio
+if strategy.position_size < 0 and not na(stopPrice)
+    targetPrice := strategy.position_avg_price - (stopPrice - strategy.position_avg_price) * rrRatio
+
+// Órdenes de salida (se registran en la vela de la señal y se actualizan cada vela)
+inLong  = strategy.position_size > 0 or (longSignal  and close > longSl)
+inShort = strategy.position_size < 0 or (shortSignal and close < shortSl)
+
+if inLong
+    // TP parcial dinámico en la banda superior del LTF (sólo si está por delante del precio)
+    if usePartial and bbUp > close and bbUp < targetPrice
+        strategy.exit("L-TP1", from_entry = "Long", qty_percent = partialPct, limit = bbUp, stop = stopPrice, comment_profit = "TP parcial BB", comment_loss = "SL")
+    strategy.exit("L-TP2", from_entry = "Long", limit = targetPrice, stop = stopPrice, comment_profit = "TP R:R", comment_loss = "SL")
+
+if inShort
+    if usePartial and bbLo < close and bbLo > targetPrice
+        strategy.exit("S-TP1", from_entry = "Short", qty_percent = partialPct, limit = bbLo, stop = stopPrice, comment_profit = "TP parcial BB", comment_loss = "SL")
+    strategy.exit("S-TP2", from_entry = "Short", limit = targetPrice, stop = stopPrice, comment_profit = "TP R:R", comment_loss = "SL")
+
+// Giro de mercado: CHOCH en 1h contra la posición -> cerrar
+newEvt1h      = ta.change(evc1) != 0 and not na(evc1)
+bearChoch1h   = newEvt1h and ev1 == -2
+bullChoch1h   = newEvt1h and ev1 == 2
+
+if closeOnChoch and strategy.position_size > 0 and bearChoch1h
+    strategy.close("Long", comment = "CHOCH 1h ↓")
+if closeOnChoch and strategy.position_size < 0 and bullChoch1h
+    strategy.close("Short", comment = "CHOCH 1h ↑")
+
+// Limpiar niveles cuando no hay posición ni señal pendiente
+if strategy.position_size == 0 and not longSignal and not shortSignal
+    stopPrice   := na
+    targetPrice := na
+
+// =====================================================================================================
+// 7. VISUALIZACIÓN
+// =====================================================================================================
+// --- Bandas de Bollinger ---
+plot(showBbLtf ? bbMid : na, "BB LTF Media",    color = color.new(color.gray, 20))
+pUpL = plot(showBbLtf ? bbUp : na, "BB LTF Superior", color = color.new(color.blue, 20))
+pLoL = plot(showBbLtf ? bbLo : na, "BB LTF Inferior", color = color.new(color.blue, 20))
+fill(pUpL, pLoL, color = color.new(color.blue, 95), title = "BB LTF Relleno")
+
+plot(showBb1h ? mid1 : na, "BB 1h Media",    color = color.new(color.purple, 40), style = plot.style_stepline)
+pUp1 = plot(showBb1h ? up1 : na, "BB 1h Superior", color = color.new(color.purple, 10), style = plot.style_stepline, linewidth = 2)
+pLo1 = plot(showBb1h ? lo1 : na, "BB 1h Inferior", color = color.new(color.purple, 10), style = plot.style_stepline, linewidth = 2)
+
+plot(showBb4h ? mid4 : na, "BB 4h Media",    color = color.new(color.orange, 30), style = plot.style_stepline, linewidth = 2)
+pUp4 = plot(showBb4h ? up4 : na, "BB 4h Superior", color = color.new(color.orange, 0), style = plot.style_stepline, linewidth = 3)
+pLo4 = plot(showBb4h ? lo4 : na, "BB 4h Inferior", color = color.new(color.orange, 0), style = plot.style_stepline, linewidth = 3)
+
+// --- Zonas de liquidez HTF (bandas extremas 4h/1h como proxy de stops acumulados) ---
+liqPad = nz(atr) * 0.3
+pUp4z = plot(showLiqZone and showBb4h ? up4 + liqPad : na, "Liq 4h sup (zona)", color = na, style = plot.style_stepline, display = display.none)
+pLo4z = plot(showLiqZone and showBb4h ? lo4 - liqPad : na, "Liq 4h inf (zona)", color = na, style = plot.style_stepline, display = display.none)
+fill(pUp4, pUp4z, color = color.new(color.red,   80), title = "Zona liquidez 4h superior")
+fill(pLo4, pLo4z, color = color.new(color.green, 80), title = "Zona liquidez 4h inferior")
+pUp1z = plot(showLiqZone and showBb1h ? up1 + liqPad : na, "Liq 1h sup (zona)", color = na, style = plot.style_stepline, display = display.none)
+pLo1z = plot(showLiqZone and showBb1h ? lo1 - liqPad : na, "Liq 1h inf (zona)", color = na, style = plot.style_stepline, display = display.none)
+fill(pUp1, pUp1z, color = color.new(color.red,   88), title = "Zona liquidez 1h superior")
+fill(pLo1, pLo1z, color = color.new(color.green, 88), title = "Zona liquidez 1h inferior")
+
+// --- Estructura: BOS / CHOCH de 4h y 1h ---
+f_evtText(int e) =>
+    e == 1 ? "BOS ↑" : e == 2 ? "CHOCH ↑" : e == -1 ? "BOS ↓" : e == -2 ? "CHOCH ↓" : ""
+
+newEvt4h = ta.change(evc4) != 0 and not na(evc4)
+if showStruct and newEvt4h and ev4 != 0
+    bull = ev4 > 0
+    line.new(bar_index - 1, evl4, bar_index, evl4, extend = extend.left, color = bull ? color.green : color.red, width = 2, style = ev4 == 2 or ev4 == -2 ? line.style_solid : line.style_dashed)
+    label.new(bar_index, evl4, "4h " + f_evtText(ev4), style = bull ? label.style_label_up : label.style_label_down, color = bull ? color.new(color.green, 10) : color.new(color.red, 10), textcolor = color.white, size = size.small)
+if showStruct and newEvt1h and ev1 != 0
+    bull = ev1 > 0
+    line.new(bar_index - 1, evl1, bar_index, evl1, color = bull ? color.new(color.green, 40) : color.new(color.red, 40), width = 1, style = ev1 == 2 or ev1 == -2 ? line.style_solid : line.style_dotted)
+    label.new(bar_index, evl1, "1h " + f_evtText(ev1), style = bull ? label.style_label_up : label.style_label_down, color = bull ? color.new(color.lime, 30) : color.new(color.orange, 30), textcolor = color.black, size = size.tiny)
+
+// --- Barridos de liquidez LTF ---
+plotshape(showSwings and sweepLow,  "Barrido mínimo (liquidez)", shape.xcross, location.belowbar, color.new(color.aqua,   0), size = size.tiny, text = "$")
+plotshape(showSwings and sweepHigh, "Barrido máximo (liquidez)", shape.xcross, location.abovebar, color.new(color.orange, 0), size = size.tiny, text = "$")
+
+// --- Señales de entrada ---
+plotshape(longSignal,  "Señal LONG",  shape.triangleup,   location.belowbar, color.new(color.lime, 0), size = size.small, text = "LONG",  textcolor = color.lime)
+plotshape(shortSignal, "Señal SHORT", shape.triangledown, location.abovebar, color.new(color.red,  0), size = size.small, text = "SHORT", textcolor = color.red)
+
+// --- Niveles SL / TP ---
+showLvl = showLevels and strategy.position_size != 0
+plot(showLvl ? stopPrice   : na, "Stop Loss",   color = color.red,  style = plot.style_linebr, linewidth = 2)
+plot(showLvl ? targetPrice : na, "Take Profit", color = color.lime, style = plot.style_linebr, linewidth = 2)
+plot(showLvl ? strategy.position_avg_price : na, "Precio entrada", color = color.gray, style = plot.style_linebr)
+
+// --- Fondo según tendencia MTF ---
+bgcolor(bullTrend ? color.new(color.green, 94) : bearTrend ? color.new(color.red, 94) : na, title = "Fondo tendencia MTF")
+
+// =====================================================================================================
+// 8. PANEL DE ESTADO
+// =====================================================================================================
+f_pos(string p) =>
+    p == "Arriba izquierda" ? position.top_left : p == "Abajo derecha" ? position.bottom_right : p == "Abajo izquierda" ? position.bottom_left : position.top_right
+
+f_trendTxt(int t) =>
+    t == 1 ? "ALCISTA ▲" : t == -1 ? "BAJISTA ▼" : "NEUTRAL"
+
+f_trendCol(int t) =>
+    t == 1 ? color.new(color.green, 20) : t == -1 ? color.new(color.red, 20) : color.new(color.gray, 20)
+
+var table panel = table.new(f_pos(panelPos), 2, 10, bgcolor = color.new(color.black, 20), border_color = color.new(color.gray, 60), border_width = 1, frame_color = color.gray, frame_width = 1)
+
+if showPanel and barstate.islast
+    table.cell(panel, 0, 0, "SMC MTF BB", text_color = color.white, text_size = size.small)
+    table.cell(panel, 1, 0, "R:R 1:" + str.tostring(rrRatio), text_color = color.white, text_size = size.small)
+
+    table.cell(panel, 0, 1, "Estructura " + tfMacro, text_color = color.white, text_size = size.small)
+    table.cell(panel, 1, 1, f_trendTxt(tr4), bgcolor = f_trendCol(tr4), text_color = color.white, text_size = size.small)
+
+    table.cell(panel, 0, 2, "Precio vs Media BB " + tfMacro, text_color = color.white, text_size = size.small)
+    table.cell(panel, 1, 2, cl4 > mid4 ? "Encima" : "Debajo", bgcolor = cl4 > mid4 ? color.new(color.green, 40) : color.new(color.red, 40), text_color = color.white, text_size = size.small)
+
+    table.cell(panel, 0, 3, "Estructura " + tfConfirm, text_color = color.white, text_size = size.small)
+    table.cell(panel, 1, 3, f_trendTxt(tr1), bgcolor = f_trendCol(tr1), text_color = color.white, text_size = size.small)
+
+    table.cell(panel, 0, 4, "Tendencia confirmada", text_color = color.white, text_size = size.small)
+    table.cell(panel, 1, 4, bullTrend ? "LONGS" : bearTrend ? "SHORTS" : "SIN SESGO", bgcolor = bullTrend ? color.green : bearTrend ? color.red : color.gray, text_color = color.white, text_size = size.small)
+
+    table.cell(panel, 0, 5, "Último evento " + tfConfirm, text_color = color.white, text_size = size.small)
+    table.cell(panel, 1, 5, f_evtText(ev1), text_color = color.white, text_size = size.small)
+
+    table.cell(panel, 0, 6, "Filtro SMC / Giro", text_color = color.white, text_size = size.small)
+    table.cell(panel, 1, 6, (useSmcFilter ? "ON" : "OFF") + " / " + (useRevFilter ? "ON" : "OFF"), text_color = color.white, text_size = size.small)
+
+    table.cell(panel, 0, 7, "Posición", text_color = color.white, text_size = size.small)
+    table.cell(panel, 1, 7, strategy.position_size > 0 ? "LARGO" : strategy.position_size < 0 ? "CORTO" : "PLANA", text_color = color.white, text_size = size.small)
+
+    table.cell(panel, 0, 8, "Timeframe gráfico / LTF", text_color = color.white, text_size = size.small)
+    table.cell(panel, 1, 8, timeframe.period + " / " + tfEntry, bgcolor = tfMismatch ? color.new(color.orange, 20) : color.new(color.green, 60), text_color = color.white, text_size = size.small)
+
+    table.cell(panel, 0, 9, tfMismatch ? "⚠ Cambia el gráfico a " + tfEntry : "", text_color = color.orange, text_size = size.small)
+    table.cell(panel, 1, 9, tfMismatch and blockOnTfMismatch ? "Entradas bloqueadas" : "", text_color = color.orange, text_size = size.small)
+
+// =====================================================================================================
+// 9. ALERTAS (usar "Crear alerta" -> "alert() function calls only")
+// =====================================================================================================
+if longSignal
+    alert("SMC MTF BB · LONG en " + syminfo.ticker + " @ " + str.tostring(close, format.mintick) + " | SL " + str.tostring(stopPrice, format.mintick) + " | TP " + str.tostring(targetPrice, format.mintick), alert.freq_once_per_bar_close)
+if shortSignal
+    alert("SMC MTF BB · SHORT en " + syminfo.ticker + " @ " + str.tostring(close, format.mintick) + " | SL " + str.tostring(stopPrice, format.mintick) + " | TP " + str.tostring(targetPrice, format.mintick), alert.freq_once_per_bar_close)
+if bearChoch1h or bullChoch1h
+    alert("SMC MTF BB · CHOCH " + (bullChoch1h ? "alcista" : "bajista") + " en " + tfConfirm + " (" + syminfo.ticker + ")", alert.freq_once_per_bar_close)
