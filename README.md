@@ -39,6 +39,11 @@ En 1m ajusta comisión y slippage en *Properties*: con muchas operaciones pesan 
 - **Modo visual "Limpio"** (por defecto) oculta BB de 1h/4h, zonas de liquidez, FVG y barridos; "Completo" los muestra.
 - Usar en el gráfico de **15m / 5m / 1m**. En 1h o 4h las bandas de 1h/4h dejan de tener sentido y las entradas se bloquean.
 
+### Afinar con datos
+- **Tabla de estadísticas** (abajo a la izquierda): operaciones, % de acierto, PF y neto por tipo (SCALP / INTRADÍA / SWING × CHOCH / Pullback). Desactivá los tipos con PF < 1.
+- **Filtros de calidad**: ADX de 1h (rango vs. tendencia), estructura LTF girada a favor para los Pullback, riesgo mínimo vs. comisión, pausa tras pérdida, horario.
+- **Tamaño por riesgo**: cada operación arriesga un % fijo del capital (0.5% por defecto) con tope de apalancamiento.
+
 ### Uso
 1. Pega el script en el Pine Editor de TradingView y pulsa *Add to chart*.
 2. Pon el gráfico en el mismo timeframe que el input **LTF · Entrada** (por defecto 5m).
