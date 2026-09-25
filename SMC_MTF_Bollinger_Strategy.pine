@@ -128,12 +128,13 @@ bbTouchLookback = input.int(3, "Toque de banda válido durante (velas)", minval 
 
 // --- Filtros de calidad ---
 useAdxFilter  = input.bool(true, "Filtro de rango: ADX de 1h mínimo", group = G_FILT, inline = "adx",
-     tooltip = "Con ADX de 1h bajo el mercado está en rango: no se toman Pullbacks y los scalps se tratan siempre como SCALP (salida rápida), nunca como INTRADÍA/SWING.")
+     tooltip = "Con ADX de la confirmación bajo el mercado está en rango: ninguna entrada se gestiona como SWING (como máximo INTRADÍA, objetivo más corto). No bloquea entradas.")
 adxMin        = input.float(20, "", minval = 0, step = 1, group = G_FILT, inline = "adx")
 adxLen        = input.int(14, "Longitud ADX", minval = 2, group = G_FILT)
 adxOnScalps   = input.bool(false, "ADX bajo también bloquea los scalps", group = G_FILT)
-pbNeedLtfTurn = input.bool(true, "Pullback: exigir que la estructura del LTF ya haya girado a favor", group = G_FILT,
-     tooltip = "Evita vender/comprar mientras el retroceso sigue vivo: la estructura del gráfico (CHOCH) tiene que estar ya en la dirección de la entrada.")
+pbNeedLtfTurn = input.bool(true, "Pullback: confirmar con CHOCH del LTF", group = G_FILT,
+     tooltip = "Secuencia SMC completa: el precio toca la banda BB, toma liquidez y luego el gráfico hace un CHOCH a favor de la tendencia -> entrada en esa vela. Evita entrar mientras el retroceso sigue vivo.")
+pbTurnWindow  = input.int(20, "Pullback: velas máx. entre toque de banda y CHOCH", minval = 2, group = G_FILT)
 blockCounterScalps = input.bool(true, "Bloquear scalps contra 1h y 4h a la vez", group = G_FILT)
 minRiskAtr    = input.float(0.5, "Riesgo mínimo (x ATR)", minval = 0, step = 0.1, group = G_FILT,
      tooltip = "Descarta stops demasiado ajustados, que se barren con el ruido.")
@@ -316,7 +317,8 @@ f_align4h(int dir) =>
 // Filtro de rango: con ADX de 1h bajo, cualquier entrada se gestiona como SCALP
 adxOk = not useAdxFilter or nz(adx1) >= adxMin
 f_tier(int dir) =>
-    not adxOk ? 1 : f_align1h(dir) and f_align4h(dir) ? 3 : f_align1h(dir) ? 2 : 1
+    base = f_align1h(dir) and f_align4h(dir) ? 3 : f_align1h(dir) ? 2 : 1
+    adxOk ? base : math.min(base, 2)
 
 // =====================================================================================================
 // 4. LTF: Bollinger, ATR, estructura, swings de liquidez y FVG
@@ -511,12 +513,20 @@ bearCross  = ta.crossunder(close, bbUp)
 bullRevOk = not useRevFilter or (revPin and bullPin) or (revEngulf and bullEngulf) or (revCrossBack and bullCross)
 bearRevOk = not useRevFilter or (revPin and bearPin) or (revEngulf and bearEngulf) or (revCrossBack and bearCross)
 
-pbLongSetup  = usePullback and adxOk and bullTrend and recentLowerTouch and bullSmcOk and bullRevOk and (not pbNeedLtfTurn or trL == 1)
-pbShortSetup = usePullback and adxOk and bearTrend and recentUpperTouch and bearSmcOk and bearRevOk and (not pbNeedLtfTurn or trL == -1)
+// Modo confirmado: toque de banda + liquidez dentro de la ventana y CHOCH del LTF a favor en esta vela
+touchLowerWin = nz(ta.barssince(touchLower), 9999) <= pbTurnWindow
+touchUpperWin = nz(ta.barssince(touchUpper), 9999) <= pbTurnWindow
+liqBullWin    = not useSmcFilter or (not na(lastBullLiqBar) and bar_index - lastBullLiqBar <= pbTurnWindow)
+liqBearWin    = not useSmcFilter or (not na(lastBearLiqBar) and bar_index - lastBearLiqBar <= pbTurnWindow)
+pbLongSetup  = usePullback and bullTrend and (pbNeedLtfTurn ? bullChochL and touchLowerWin and liqBullWin : recentLowerTouch and bullSmcOk and bullRevOk)
+pbShortSetup = usePullback and bearTrend and (pbNeedLtfTurn ? bearChochL and touchUpperWin and liqBearWin : recentUpperTouch and bearSmcOk and bearRevOk)
 
 // SL del pullback
-pbLongSl  = (slMode == "Zona liquidez/FVG" and not na(bullLiqLow)  and useSmcFilter ? math.min(low,  bullLiqLow)  : low)  - slAtrMult * atr
-pbShortSl = (slMode == "Zona liquidez/FVG" and not na(bearLiqHigh) and useSmcFilter ? math.max(high, bearLiqHigh) : high) + slAtrMult * atr
+// En modo confirmado el SL va por debajo/encima del extremo del retroceso
+pbLowWin  = ta.lowest(low, pbTurnWindow)
+pbHighWin = ta.highest(high, pbTurnWindow)
+pbLongSl  = (pbNeedLtfTurn ? pbLowWin : slMode == "Zona liquidez/FVG" and not na(bullLiqLow)  and useSmcFilter ? math.min(low,  bullLiqLow)  : low)  - slAtrMult * atr
+pbShortSl = (pbNeedLtfTurn ? pbHighWin : slMode == "Zona liquidez/FVG" and not na(bearLiqHigh) and useSmcFilter ? math.max(high, bearLiqHigh) : high) + slAtrMult * atr
 
 // =====================================================================================================
 // 6. MOTOR B · SCALP CHOCH (agresivo, cualquier LTF)
@@ -901,6 +911,7 @@ if showPanel and barstate.islast
     posTxt = strategy.position_size > 0 ? "COMPRADO · " + f_tierName(posTier) : strategy.position_size < 0 ? "VENDIDO · " + f_tierName(posTier) : pending ? "Orden pendiente" : "Sin posición"
     posCol = strategy.position_size > 0 ? color.new(color.green, 20) : strategy.position_size < 0 ? color.new(color.red, 20) : na
     r := f_row(r, "Posición", posTxt, posCol, w)
+    r := f_row(r, "Operaciones", str.tostring(strategy.closedtrades) + " cerradas", na, w)
     if strategy.position_size != 0
         rNow = riskR > 0 ? (close - entryRef) * posDir / riskR : na
         r := f_row(r, "Origen", posType, na, w)
