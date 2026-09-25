@@ -138,8 +138,10 @@ blockCounterScalps = input.bool(true, "Bloquear scalps contra 1h y 4h a la vez",
 minRiskAtr    = input.float(0.5, "Riesgo mínimo (x ATR)", minval = 0, step = 0.1, group = G_FILT,
      tooltip = "Descarta stops demasiado ajustados, que se barren con el ruido.")
 commPct       = input.float(0.04, "Comisión por lado (%) — igual que en Propiedades", minval = 0, step = 0.01, group = G_FILT)
-minRiskCost   = input.float(5.0, "Riesgo mínimo (x costo de comisión ida+vuelta)", minval = 0, step = 0.5, group = G_FILT,
+minRiskCost   = input.float(4.0, "Riesgo mínimo (x costo de comisión ida+vuelta)", minval = 0, step = 0.5, group = G_FILT,
      tooltip = "5 = la comisión se come como máximo el 20% del riesgo. En 1m/5m es el filtro que más mejora el resultado.")
+tightStopMode = input.string("Ampliar hasta el mínimo", "Si el stop queda muy corto", options = ["Ampliar hasta el mínimo", "Descartar la entrada"], group = G_FILT,
+     tooltip = "Ampliar: el stop se aleja hasta el riesgo mínimo (el TP se recalcula con el R:R). Descartar: no se opera. En 5m con BTC, descartar deja casi sin entradas porque la comisión es grande frente al movimiento de cada vela.")
 cooldownBars  = input.int(6, "Pausa tras una pérdida (velas, misma dirección)", minval = 0, group = G_FILT)
 useSession    = input.bool(false, "Operar sólo en horario", group = G_FILT, inline = "ses")
 sessionStr    = input.session("0800-1800", "", group = G_FILT, inline = "ses")
@@ -186,7 +188,10 @@ showFvg      = input.bool(true,  "Mostrar FVG",          group = G_VIS) and full
 showStruct   = input.bool(true,  "Mostrar BOS / CHOCH de 4h y 1h", group = G_VIS)
 showLtfChoch = input.bool(true,  "Mostrar CHOCH del LTF (rombos)", group = G_VIS) and fullVis
 showSwings   = input.bool(true,  "Mostrar swings de liquidez LTF y barridos", group = G_VIS) and fullVis
-showLegend   = input.bool(true,  "Mostrar leyenda en el panel", group = G_VIS)
+showLegend   = input.bool(false, "Mostrar leyenda en el panel", group = G_VIS)
+panelCompact = input.bool(true,  "Panel compacto (celular)", group = G_VIS,
+     tooltip = "Textos cortos y letra chica para que el panel y la tabla entren en la pantalla del celular. TradingView no dibuja las tablas que no entran en el gráfico.")
+tblSize      = panelCompact ? size.tiny : size.small
 showLevels   = input.bool(true,  "Mostrar niveles SL / TP", group = G_VIS)
 showPanel    = input.bool(true,  "Mostrar panel de estado", group = G_VIS)
 panelPos     = input.string("Arriba derecha", "Posición del panel", options = ["Arriba derecha", "Arriba izquierda", "Abajo derecha", "Abajo izquierda"], group = G_VIS)
@@ -276,7 +281,7 @@ f_dirColor(int dir, int t) =>
     dir == 1 ? color.new(color.lime, t == 3 ? 0 : t == 2 ? 15 : 35) : color.new(color.red, t == 3 ? 0 : t == 2 ? 15 : 35)
 
 f_tierDesc(int t, string cName, string mName) =>
-    t == 3 ? "SWING · a favor de " + cName + " y " + mName : t == 2 ? "INTRADÍA · a favor de " + cName : "SCALP · sin " + cName + " a favor (rápido)"
+    t == 3 ? "SWING (" + cName + "+" + mName + " ✓)" : t == 2 ? "INTRADÍA (" + cName + " ✓)" : "SCALP (sin " + cName + ")"
 
 f_rr(int t) =>
     t == 3 ? rrSwing : t == 2 ? rrIntra : rrScalp
@@ -560,8 +565,11 @@ var bool   trailActive = false
 f_costDist(float px) =>
     2 * commPct / 100 * px
 // Riesgo mínimo: por ATR y por costo de comisión
+f_minDist(float px) =>
+    math.max(minRiskAtr * atr, minRiskCost * f_costDist(px))
 f_riskOk(float dist, float px) =>
-    dist > 0 and dist >= minRiskAtr * atr and dist >= minRiskCost * f_costDist(px)
+    dist > 0 and dist >= f_minDist(px)
+widenStops = tightStopMode == "Ampliar hasta el mínimo"
 
 f_trailOn(int t) =>
     trailMode == "INTRADÍA y SWING" ? t >= 2 : trailMode == "Sólo SWING" ? t == 3 : false
@@ -695,10 +703,16 @@ f_qty(float entry, float stop) =>
     dist = math.abs(entry - stop)
     dist > 0 ? math.min(strategy.equity * riskPct / 100 / dist, strategy.equity * maxLeverage / entry) : na
 
-longScalp  = longOk  and scLongSetup  and (flat or canRevShort) and f_riskOk(scLongPx - scLongSl, scLongPx)
-shortScalp = shortOk and scShortSetup and (flat or canRevLong)  and f_riskOk(scShortSl - scShortPx, scShortPx)
-longPb     = longOk  and pbLongSetup  and flat and f_riskOk(close - pbLongSl, close)
-shortPb    = shortOk and pbShortSetup and flat and f_riskOk(pbShortSl - close, close)
+// Stops finales (ampliados hasta el riesgo mínimo si corresponde)
+scLongSlF  = widenStops ? math.min(scLongSl,  scLongPx  - f_minDist(scLongPx))  : scLongSl
+scShortSlF = widenStops ? math.max(scShortSl, scShortPx + f_minDist(scShortPx)) : scShortSl
+pbLongSlF  = widenStops ? math.min(pbLongSl,  close - f_minDist(close)) : pbLongSl
+pbShortSlF = widenStops ? math.max(pbShortSl, close + f_minDist(close)) : pbShortSl
+
+longScalp  = longOk  and scLongSetup  and (flat or canRevShort) and f_riskOk(scLongPx - scLongSlF, scLongPx)
+shortScalp = shortOk and scShortSetup and (flat or canRevLong)  and f_riskOk(scShortSlF - scShortPx, scShortPx)
+longPb     = longOk  and pbLongSetup  and flat and f_riskOk(close - pbLongSlF, close)
+shortPb    = shortOk and pbShortSetup and flat and f_riskOk(pbShortSlF - close, close)
 
 longSignal  = longScalp or longPb
 shortSignal = not longSignal and (shortScalp or shortPb)
@@ -715,7 +729,7 @@ if longSignal
     posType     := f_entryText(longScalp, longPb, 1)
     pendingLimit := longScalp and not longPb and useLimit and scLongPx < close
     entryRef    := longScalp and not longPb ? scLongPx : close
-    stopPrice   := longScalp and not longPb ? scLongSl : pbLongSl
+    stopPrice   := longScalp and not longPb ? scLongSlF : pbLongSlF
     riskR       := entryRef - stopPrice
     targetPrice := entryRef + riskR * f_rr(posTier)
     pending     := true
@@ -739,7 +753,7 @@ if shortSignal
     posType     := f_entryText(shortScalp, shortPb, -1)
     pendingLimit := shortScalp and not shortPb and useLimit and scShortPx > close
     entryRef    := shortScalp and not shortPb ? scShortPx : close
-    stopPrice   := shortScalp and not shortPb ? scShortSl : pbShortSl
+    stopPrice   := shortScalp and not shortPb ? scShortSlF : pbShortSlF
     riskR       := stopPrice - entryRef
     targetPrice := entryRef - riskR * f_rr(posTier)
     pending     := true
@@ -856,8 +870,8 @@ var table panel = table.new(f_pos(panelPos), 2, 20, bgcolor = color.new(color.bl
 
 // Escribe una fila (etiqueta | valor) y devuelve el índice de la siguiente
 f_row(int r, string k, string v, color bg, color tc) =>
-    table.cell(panel, 0, r, k, text_color = color.white, text_size = size.small, text_halign = text.align_left)
-    table.cell(panel, 1, r, v, bgcolor = bg, text_color = tc, text_size = size.small, text_halign = text.align_left)
+    table.cell(panel, 0, r, k, text_color = color.white, text_size = tblSize, text_halign = text.align_left)
+    table.cell(panel, 1, r, v, bgcolor = bg, text_color = tc, text_size = tblSize, text_halign = text.align_left)
     r + 1
 
 if showPanel and barstate.islast
@@ -872,16 +886,16 @@ if showPanel and barstate.islast
     r := f_row(r, ltfName, f_trendTxt(trL) + " · " + f_evtText(evL), f_trendCol(trL), w)
 
     // Sesgo y qué hacer
-    biasTxt = bullTrend ? "ALCISTA → priorizar COMPRAS" : bearTrend ? "BAJISTA → priorizar VENTAS" : "MIXTO → sólo scalps rápidos"
+    biasTxt = bullTrend ? "ALCISTA → COMPRAS" : bearTrend ? "BAJISTA → VENTAS" : "MIXTO → scalps"
     biasCol = bullTrend ? color.new(color.green, 10) : bearTrend ? color.new(color.red, 10) : color.new(color.gray, 30)
-    r := f_row(r, "SESGO (" + macroName + " + " + htfName + ")", biasTxt, biasCol, w)
-    r := f_row(r, "Mercado (ADX " + htfName + ")", (adxOk ? "EN TENDENCIA" : "EN RANGO → sólo scalps") + " · " + str.tostring(nz(adx1), "#"), adxOk ? color.new(color.teal, 40) : color.new(color.orange, 40), w)
-    r := f_row(r, "Una VENTA ahora sería", f_tierDesc(f_tier(-1), htfName, macroName), color.new(color.red, f_tier(-1) == 3 ? 20 : f_tier(-1) == 2 ? 45 : 75), w)
-    r := f_row(r, "Una COMPRA ahora sería", f_tierDesc(f_tier(1), htfName, macroName), color.new(color.green, f_tier(1) == 3 ? 20 : f_tier(1) == 2 ? 45 : 75), w)
-    nextTxt = bearTrend ? (trL == -1 ? "Esperar rebote a BB superior (no vender en plena caída)" : "Atento: CHOCH ↓ en " + ltfName + " = VENTA") :
-         bullTrend ? (trL == 1 ? "Esperar retroceso a BB inferior (no comprar en plena subida)" : "Atento: CHOCH ↑ en " + ltfName + " = COMPRA") :
-         "Scalp: CHOCH en " + ltfName + " tras barrer liquidez"
-    r := f_row(r, "Próximo gatillo", nextTxt, na, color.yellow)
+    r := f_row(r, "Sesgo " + macroName + "+" + htfName, biasTxt, biasCol, w)
+    r := f_row(r, "ADX " + htfName, (adxOk ? "TENDENCIA" : "RANGO") + " · " + str.tostring(nz(adx1), "#"), adxOk ? color.new(color.teal, 40) : color.new(color.orange, 40), w)
+    r := f_row(r, "VENTA sería", f_tierDesc(f_tier(-1), htfName, macroName), color.new(color.red, f_tier(-1) == 3 ? 20 : f_tier(-1) == 2 ? 45 : 75), w)
+    r := f_row(r, "COMPRA sería", f_tierDesc(f_tier(1), htfName, macroName), color.new(color.green, f_tier(1) == 3 ? 20 : f_tier(1) == 2 ? 45 : 75), w)
+    nextTxt = bearTrend ? (trL == -1 ? "Esperar rebote a BB sup." : "CHOCH ↓ " + ltfName + " = VENTA") :
+         bullTrend ? (trL == 1 ? "Esperar retroceso a BB inf." : "CHOCH ↑ " + ltfName + " = COMPRA") :
+         "CHOCH " + ltfName + " tras barrido"
+    r := f_row(r, "Esperar", nextTxt, na, color.yellow)
 
     // Posición
     posTxt = strategy.position_size > 0 ? "COMPRADO · " + f_tierName(posTier) : strategy.position_size < 0 ? "VENDIDO · " + f_tierName(posTier) : pending ? "Orden pendiente" : "Sin posición"
@@ -916,11 +930,11 @@ f_statRow(int row, string name, int n, int w, float gw, float gl) =>
     net  = gw - gl
     good = n > 0 and net > 0
     bg   = n == 0 ? na : good ? color.new(color.green, 55) : color.new(color.red, 55)
-    table.cell(stats, 0, row, name, text_color = color.white, text_size = size.small, text_halign = text.align_left)
-    table.cell(stats, 1, row, str.tostring(n), text_color = color.white, text_size = size.small)
-    table.cell(stats, 2, row, n > 0 ? str.tostring(100.0 * w / n, "#") + "%" : "—", text_color = color.white, text_size = size.small)
-    table.cell(stats, 3, row, n == 0 ? "—" : na(pf) ? "∞" : str.tostring(pf, "#.##"), text_color = color.white, text_size = size.small)
-    table.cell(stats, 4, row, n > 0 ? str.tostring(net, "#.##") : "—", bgcolor = bg, text_color = color.white, text_size = size.small)
+    table.cell(stats, 0, row, name, text_color = color.white, text_size = tblSize, text_halign = text.align_left)
+    table.cell(stats, 1, row, str.tostring(n), text_color = color.white, text_size = tblSize)
+    table.cell(stats, 2, row, n > 0 ? str.tostring(100.0 * w / n, "#") + "%" : "—", text_color = color.white, text_size = tblSize)
+    table.cell(stats, 3, row, n == 0 ? "—" : na(pf) ? "∞" : str.tostring(pf, "#.##"), text_color = color.white, text_size = tblSize)
+    table.cell(stats, 4, row, n > 0 ? str.tostring(net, "#.##") : "—", bgcolor = bg, text_color = color.white, text_size = tblSize)
 
 if showStats and barstate.islast
     // Incluir la operación que aún se está agrupando
@@ -931,12 +945,12 @@ if showStats and barstate.islast
         if curTradePnl > 0
             array.set(wn, curTradeIdx, array.get(wn, curTradeIdx) + 1)
     hdr = color.new(color.gray, 50)
-    table.cell(stats, 0, 0, "Tipo de entrada", bgcolor = hdr, text_color = color.white, text_size = size.small)
-    table.cell(stats, 1, 0, "Ops",     bgcolor = hdr, text_color = color.white, text_size = size.small)
-    table.cell(stats, 2, 0, "Acierto", bgcolor = hdr, text_color = color.white, text_size = size.small)
-    table.cell(stats, 3, 0, "PF",      bgcolor = hdr, text_color = color.white, text_size = size.small)
-    table.cell(stats, 4, 0, "Neto",    bgcolor = hdr, text_color = color.white, text_size = size.small)
-    names = array.from("SCALP · CHOCH", "INTRADÍA · CHOCH", "SWING · CHOCH", "SCALP · Pullback", "INTRADÍA · Pullback", "SWING · Pullback")
+    table.cell(stats, 0, 0, "Tipo", bgcolor = hdr, text_color = color.white, text_size = tblSize)
+    table.cell(stats, 1, 0, "Ops",     bgcolor = hdr, text_color = color.white, text_size = tblSize)
+    table.cell(stats, 2, 0, "Acierto", bgcolor = hdr, text_color = color.white, text_size = tblSize)
+    table.cell(stats, 3, 0, "PF",      bgcolor = hdr, text_color = color.white, text_size = tblSize)
+    table.cell(stats, 4, 0, "Neto",    bgcolor = hdr, text_color = color.white, text_size = tblSize)
+    names = array.from("SCALP CH", "INTRA CH", "SWING CH", "SCALP PB", "INTRA PB", "SWING PB")
     int   tn  = 0
     int   tw  = 0
     float tgw = 0.0
