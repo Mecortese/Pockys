@@ -101,3 +101,16 @@ cuánto corre después.
 | Rebote media BB | +0.15R | −0.04R | +0.32R / −0.02R (descartado) |
 
 Costo de comisión incluido (~0.18R por operación).
+
+## 7. Motor "Respaldo" en 5m / 15m / 1h / 4h (BTC + ETH) — `python3 be_tf.py`
+
+Gestión: SL a la entrada en +1R, objetivo 3R. R neto de comisión por señal (las señales pueden superponerse).
+
+| Gráfico | Período | Con respaldo | Sin respaldo | Señales/mes por activo (con respaldo) |
+|---|---|---|---|---|
+| 5m | último año | **+0.14R** | −0.06R | ~120 |
+| 15m | último año | **+0.29R** | +0.05R | ~39 |
+| 1h | último año | **+0.24R** | +0.22R | ~15 |
+| 1h | 2020-2025 | **+0.25R** | +0.11R | ~15 |
+| 4h | último año | −0.14R (92 señales) | +0.34R | ~4 |
+| 4h | 2020-2025 | **+0.56R** | +0.13R | ~4 |
