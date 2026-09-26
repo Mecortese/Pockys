@@ -1,0 +1,169 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// =====================================================================================================
+//  Cartera Tendencia · BTC · Oro · Nasdaq
+// -----------------------------------------------------------------------------------------------------
+//  Seguimiento de tendencia "time-series momentum" (Moskowitz, Ooi y Pedersen, 2012; Faber, 2007):
+//    - Un activo se mantiene COMPRADO sólo si su tendencia de largo plazo es alcista.
+//      Filtro por defecto: momentum de 12 meses (precio de hoy > precio de hace 252 velas diarias).
+//    - Si la tendencia se da vuelta, se sale a liquidez (no se vende en corto: en BTC, oro y Nasdaq
+//      vender en corto empeoró los resultados en todos los backtests).
+//    - Pesos de la cartera: iguales (1/3) o por paridad de riesgo (inversos a la volatilidad de 60 días),
+//      así BTC, que es mucho más volátil, no domina el riesgo.
+//
+//  Backtest en Python (backtest/portfolio.py, 2015-2026, costos incluidos, sin optimizar):
+//    Momentum 12m · pesos iguales          : ~30% anual, caída máx. ~28%
+//    Momentum 12m · paridad de riesgo      : ~16% anual, caída máx. ~11%, peor año -3%
+//    Comprar y mantener 1/3 cada uno        : ~30% anual, caída máx. ~39%, peor año -30%
+//
+//  Uso:
+//    - Como ESTRATEGIA sobre el gráfico DIARIO de cualquiera de los tres activos: backtest de ese activo.
+//    - Como TABLERO: el panel muestra el estado y el peso sugerido de los tres activos, en cualquier gráfico.
+//    - Revisar una vez por semana (el backtest rebalancea semanalmente). No es para operar intradía.
+//
+//  Anti-repintado: los datos de otros símbolos se leen del DÍA CERRADO (expr[1] + lookahead_on).
+// =====================================================================================================
+//@version=5
+strategy("Cartera Tendencia · BTC · Oro · Nasdaq",
+     shorttitle         = "Cartera-Tendencia",
+     overlay            = true,
+     initial_capital    = 10000,
+     default_qty_type   = strategy.percent_of_equity,
+     default_qty_value  = 100,
+     commission_type    = strategy.commission.percent,
+     commission_value   = 0.05,
+     slippage           = 2,
+     pyramiding         = 0,
+     calc_on_every_tick = false)
+
+// =====================================================================================================
+// INPUTS
+// =====================================================================================================
+G_ASSETS = "Activos de la cartera"
+G_RULE   = "Regla de tendencia"
+G_W      = "Pesos"
+G_VIS    = "Visualización"
+
+symBTC  = input.symbol("BINANCE:BTCUSDT", "BTC",    group = G_ASSETS)
+symGold = input.symbol("OANDA:XAUUSD",    "Oro",    group = G_ASSETS)
+symNdx  = input.symbol("NASDAQ:NDX",      "Nasdaq", group = G_ASSETS,
+     tooltip = "Podés usar el símbolo de tu broker (p. ej. PEPPERSTONE:NAS100, CAPITALCOM:US100, OANDA:NAS100USD).")
+
+rule    = input.string("Momentum 12 meses", "Filtro de tendencia", options = ["Momentum 12 meses", "Media 200", "Cruce 50/200", "Voto 2 de 3"], group = G_RULE,
+     tooltip = "Momentum 12 meses: comprado si el cierre es mayor que el de hace N velas diarias. Media 200: cierre sobre la media de 200. Cruce 50/200: media 50 sobre media 200. Voto: al menos 2 de los 3. Todas dieron resultados parecidos; el momentum fue el mejor en riesgo/retorno.")
+momLen  = input.int(252, "Momentum: velas diarias", minval = 20, group = G_RULE)
+weekly  = input.bool(true, "Revisar sólo una vez por semana (como en el backtest)", group = G_RULE,
+     tooltip = "La estrategia sólo cambia de posición en la primera vela diaria de cada semana, usando el cierre anterior. Evita entradas y salidas por ruido diario.")
+
+weighting = input.string("Paridad de riesgo", "Pesos de la cartera", options = ["Paridad de riesgo", "Iguales (1/3)"], group = G_W,
+     tooltip = "Paridad de riesgo: cada activo pesa en proporción inversa a su volatilidad de 60 días (menos caída). Iguales: 1/3 del capital en cada activo en tendencia (más retorno, más caída).")
+volLen    = input.int(60, "Volatilidad: días", minval = 10, group = G_W)
+
+showPanel = input.bool(true, "Mostrar tablero", group = G_VIS)
+panelPos  = input.string("Arriba derecha", "Posición del tablero", options = ["Arriba derecha", "Arriba izquierda", "Abajo derecha", "Abajo izquierda"], group = G_VIS)
+showMAs   = input.bool(true, "Mostrar medias 50 / 200 diarias", group = G_VIS)
+
+// =====================================================================================================
+// FUNCIONES
+// =====================================================================================================
+// Señal de tendencia diaria (se evalúa dentro de request.security en "D"); devuelve el día anterior cerrado
+f_trend(string r, int mLen) =>
+    c      = close
+    s200   = ta.sma(c, 200)
+    s50    = ta.sma(c, 50)
+    mom    = c / c[mLen] - 1
+    tMom   = mom > 0
+    tSma   = c > s200
+    tCross = s50 > s200
+    votes  = (tMom ? 1 : 0) + (tSma ? 1 : 0) + (tCross ? 1 : 0)
+    sig    = r == "Momentum 12 meses" ? tMom : r == "Media 200" ? tSma : r == "Cruce 50/200" ? tCross : votes >= 2
+    vol    = ta.stdev(ta.change(c) / c[1], volLen) * math.sqrt(252)
+    dSma   = c / s200 - 1
+    // valores del día anterior (cerrado): junto con lookahead_on evita repintar
+    [sig[1], mom[1], dSma[1], vol[1], c[1]]
+
+// Datos diarios CERRADOS de un símbolo
+f_daily(string sym) =>
+    request.security(sym, "D", f_trend(rule, momLen), lookahead = barmerge.lookahead_on)
+
+f_pos(string p) =>
+    p == "Arriba izquierda" ? position.top_left : p == "Abajo derecha" ? position.bottom_right : p == "Abajo izquierda" ? position.bottom_left : position.top_right
+
+// =====================================================================================================
+// DATOS DE LOS TRES ACTIVOS
+// =====================================================================================================
+[sigB, momB, dSmaB, volB, cB] = f_daily(symBTC)
+[sigG, momG, dSmaG, volG, cG] = f_daily(symGold)
+[sigN, momN, dSmaN, volN, cN] = f_daily(symNdx)
+
+// Pesos: paridad de riesgo sobre los tres activos; los que no están en tendencia quedan en liquidez
+ivB = na(volB) or volB == 0 ? 0.0 : 1 / volB
+ivG = na(volG) or volG == 0 ? 0.0 : 1 / volG
+ivN = na(volN) or volN == 0 ? 0.0 : 1 / volN
+ivSum = ivB + ivG + ivN
+baseB = weighting == "Paridad de riesgo" ? (ivSum > 0 ? ivB / ivSum : 0.0) : 1.0 / 3
+baseG = weighting == "Paridad de riesgo" ? (ivSum > 0 ? ivG / ivSum : 0.0) : 1.0 / 3
+baseN = weighting == "Paridad de riesgo" ? (ivSum > 0 ? ivN / ivSum : 0.0) : 1.0 / 3
+wB = sigB ? baseB : 0.0
+wG = sigG ? baseG : 0.0
+wN = sigN ? baseN : 0.0
+wCash = 1 - wB - wG - wN
+
+// =====================================================================================================
+// ESTRATEGIA SOBRE EL ACTIVO DEL GRÁFICO (backtest individual)
+// =====================================================================================================
+[sigC, momC, dSmaC, volC, cC] = request.security(syminfo.tickerid, "D", f_trend(rule, momLen), lookahead = barmerge.lookahead_on)
+newWeek  = ta.change(time("W")) != 0
+checkNow = not weekly or newWeek
+
+if checkNow and sigC and strategy.position_size == 0
+    strategy.entry("Largo", strategy.long, comment = "Tendencia ↑")
+if checkNow and not sigC and strategy.position_size > 0
+    strategy.close("Largo", comment = "Tendencia ↓ · a liquidez")
+
+// Medias diarias sobre el gráfico
+sma50D  = request.security(syminfo.tickerid, "D", ta.sma(close, 50)[1],  lookahead = barmerge.lookahead_on)
+sma200D = request.security(syminfo.tickerid, "D", ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
+plot(showMAs ? sma50D  : na, "Media 50 diaria",  color = color.new(color.orange, 20), linewidth = 1)
+plot(showMAs ? sma200D : na, "Media 200 diaria", color = color.new(color.blue, 10), linewidth = 2)
+bgcolor(sigC ? color.new(color.green, 93) : color.new(color.red, 95), title = "Tendencia del activo")
+
+// =====================================================================================================
+// TABLERO
+// =====================================================================================================
+var table t = table.new(f_pos(panelPos), 5, 7, bgcolor = color.new(color.black, 15), border_color = color.new(color.gray, 60), border_width = 1, frame_color = color.gray, frame_width = 1)
+
+f_row(int r, string name, bool sig, float mom, float dSma, float w) =>
+    col = sig ? color.new(color.green, 30) : color.new(color.red, 40)
+    table.cell(t, 0, r, name, text_color = color.white, text_size = size.small, text_halign = text.align_left)
+    table.cell(t, 1, r, sig ? "COMPRADO" : "AFUERA", bgcolor = col, text_color = color.white, text_size = size.small)
+    table.cell(t, 2, r, str.tostring(w * 100, "#") + "%", text_color = color.white, text_size = size.small)
+    table.cell(t, 3, r, na(mom) ? "—" : str.tostring(mom * 100, "#.#") + "%", text_color = mom > 0 ? color.lime : color.red, text_size = size.small)
+    table.cell(t, 4, r, na(dSma) ? "—" : str.tostring(dSma * 100, "#.#") + "%", text_color = dSma > 0 ? color.lime : color.red, text_size = size.small)
+
+if showPanel and barstate.islast
+    hdr = color.new(color.gray, 50)
+    table.cell(t, 0, 0, "Activo",   bgcolor = hdr, text_color = color.white, text_size = size.small)
+    table.cell(t, 1, 0, "Estado",   bgcolor = hdr, text_color = color.white, text_size = size.small)
+    table.cell(t, 2, 0, "Peso",     bgcolor = hdr, text_color = color.white, text_size = size.small)
+    table.cell(t, 3, 0, "Mom. " + str.tostring(momLen) + "d", bgcolor = hdr, text_color = color.white, text_size = size.small)
+    table.cell(t, 4, 0, "vs Media 200", bgcolor = hdr, text_color = color.white, text_size = size.small)
+    f_row(1, "BTC",    sigB, momB, dSmaB, wB)
+    f_row(2, "Oro",    sigG, momG, dSmaG, wG)
+    f_row(3, "Nasdaq", sigN, momN, dSmaN, wN)
+    table.cell(t, 0, 4, "Liquidez", text_color = color.white, text_size = size.small, text_halign = text.align_left)
+    table.cell(t, 1, 4, "", text_color = color.white, text_size = size.small)
+    table.cell(t, 2, 4, str.tostring(wCash * 100, "#") + "%", text_color = color.white, text_size = size.small)
+    table.cell(t, 3, 4, "", text_color = color.white, text_size = size.small)
+    table.cell(t, 4, 4, "", text_color = color.white, text_size = size.small)
+    table.cell(t, 0, 5, "Regla: " + rule + " · " + weighting, text_color = color.gray, text_size = size.tiny, text_halign = text.align_left)
+    table.cell(t, 0, 6, "Revisar una vez por semana", text_color = color.gray, text_size = size.tiny, text_halign = text.align_left)
+
+// =====================================================================================================
+// ALERTAS (Crear alerta -> "alert() function calls only")
+// =====================================================================================================
+if sigB != sigB[1] and not na(sigB[1])
+    alert("Cartera Tendencia · BTC: " + (sigB ? "entra en tendencia → COMPRAR" : "sale de tendencia → a LIQUIDEZ"), alert.freq_once_per_bar_close)
+if sigG != sigG[1] and not na(sigG[1])
+    alert("Cartera Tendencia · Oro: " + (sigG ? "entra en tendencia → COMPRAR" : "sale de tendencia → a LIQUIDEZ"), alert.freq_once_per_bar_close)
+if sigN != sigN[1] and not na(sigN[1])
+    alert("Cartera Tendencia · Nasdaq: " + (sigN ? "entra en tendencia → COMPRAR" : "sale de tendencia → a LIQUIDEZ"), alert.freq_once_per_bar_close)

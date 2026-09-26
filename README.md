@@ -1,5 +1,15 @@
 # Pockys
 
+## ⭐ Cartera Tendencia · BTC · Oro · Nasdaq (recomendado)
+
+Archivo: [`Cartera_Tendencia_BTC_Oro_Nasdaq.pine`](Cartera_Tendencia_BTC_Oro_Nasdaq.pine)
+
+Seguimiento de tendencia "time-series momentum" (el que usan los fondos CTA): cada activo se mantiene comprado sólo
+si su precio es mayor que hace 12 meses; si no, a liquidez. Pesos por paridad de riesgo (o iguales).
+Backtest 2015-2026: ~16% anual con caída máxima ~11% (paridad de riesgo) o ~30% anual con caída ~28% (pesos iguales).
+Tablero con estado y peso sugerido de los tres activos; revisar una vez por semana. Detalle en
+[`backtest/RESULTADOS.md`](backtest/RESULTADOS.md).
+
 ## SMC MTF Bollinger + CHOCH Scalping Strategy (Pine Script v5)
 
 Archivo: [`SMC_MTF_Bollinger_Strategy.pine`](SMC_MTF_Bollinger_Strategy.pine)

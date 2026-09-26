@@ -59,3 +59,31 @@ python3 study.py BTCUSDT,ETHUSDT 240 ruptura_3R
 python3 events.py BTCUSDT 5           # estudio de eventos CHOCH
 python3 alt.py 240 BTCUSDT,ETHUSDT    # gatillos alternativos
 ```
+
+## 4. Estrategias clásicas publicadas (velas diarias, sin optimizar)
+
+Datos: BTC 2014-2026, oro 2000-2026, Nasdaq 100 1985-2026 (Yahoo). Señal al cierre, ejecución a la apertura siguiente,
+costos incluidos. `python3 classic.py`
+
+| Estrategia | BTC anual / caída máx. | Oro | Nasdaq |
+|---|---|---|---|
+| Comprar y mantener | 63% / −83% | 11.3% / −45% | 13.7% / −83% |
+| Momentum 12 meses (solo compra) | **67.8% / −71%** | 7.7% / −43% | 12.5% / −48% |
+| Cruce medias 50/200 | 56.9% / −69% | 8.1% / −37% | **12.9% / −42%** |
+| Sobre media 200 (Faber) | 60.8% / −70% | 8.0% / −38% | 11.6% / −54% |
+| Turtle 55/20 compra y venta | 33.9% / −67% | −2.4% / −69% | 1.1% / −72% |
+| Connors RSI2 | 10.0% / −35% | 0.9% / −17% | 3.7% / −38% |
+
+En activos con tendencia alcista de largo plazo, los filtros de tendencia rinden parecido a comprar y mantener
+pero cortan mucho las caídas. Vender en corto empeora los resultados en los tres.
+
+## 5. Cartera BTC + Oro + Nasdaq con filtro de tendencia (2015-2026) — `python3 portfolio.py`
+
+| Cartera | Anual | Caída máx. | Sharpe | Peor año |
+|---|---|---|---|---|
+| Comprar y mantener, 1/3 cada uno | 30.1% | −39.0% | 1.22 | −30.3% |
+| Momentum 12m, 1/3 cada uno | 29.9% | −28.1% | 1.38 | −17.6% |
+| **Momentum 12m, paridad de riesgo** | **16.4%** | **−10.6%** | **1.44** | **−2.9%** |
+| Media 200, paridad de riesgo | 14.8% | −18.9% | 1.35 | −0.8% |
+
+Implementado en `Cartera_Tendencia_BTC_Oro_Nasdaq.pine` (tablero + estrategia sobre el gráfico diario).
