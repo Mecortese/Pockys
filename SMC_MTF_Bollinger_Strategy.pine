@@ -68,11 +68,14 @@ tfEntry   = input.timeframe("5",   "LTF · Entrada (debe coincidir con el gráfi
 blockOnTfMismatch = input.bool(true, "Bloquear entradas si el gráfico ≠ LTF", group = G_TF)
 
 // --- Motores ---
-entryEngine = input.string("Ambos", "Motor de entrada", options = ["Ambos", "Sólo Pullback BB", "Sólo Scalp CHOCH"], group = G_MODE)
+entryEngine = input.string("Ruptura BB con tendencia", "Motor de entrada", options = ["Ruptura BB con tendencia", "Ruptura + Pullback + Scalp", "Ambos (Pullback + Scalp CHOCH)", "Sólo Pullback BB", "Sólo Scalp CHOCH"], group = G_MODE,
+     tooltip = "Ruptura BB con tendencia: el único motor con ventaja en el backtest (6 años, BTC/ETH/SOL/oro, gráfico 4h). Pullback y Scalp CHOCH quedan como opción: en el backtest de 1 año (5m/15m/1h) no mostraron ventaja después de comisiones.")
+rrBreakout  = input.float(3.0, "Ruptura: objetivo (R)", minval = 1, step = 0.5, group = G_MODE)
 allowLong   = input.bool(true, "Permitir largos", group = G_MODE)
 allowShort  = input.bool(true, "Permitir cortos", group = G_MODE)
-usePullback = entryEngine != "Sólo Scalp CHOCH"
-useScalp    = entryEngine != "Sólo Pullback BB"
+useBreakout = entryEngine == "Ruptura BB con tendencia" or entryEngine == "Ruptura + Pullback + Scalp"
+usePullback = entryEngine == "Ruptura + Pullback + Scalp" or entryEngine == "Ambos (Pullback + Scalp CHOCH)" or entryEngine == "Sólo Pullback BB"
+useScalp    = entryEngine == "Ruptura + Pullback + Scalp" or entryEngine == "Ambos (Pullback + Scalp CHOCH)" or entryEngine == "Sólo Scalp CHOCH"
 
 // --- Bollinger ---
 bbLen  = input.int(20,    "Longitud",            minval = 1,   group = G_BB)
@@ -154,7 +157,7 @@ minTier       = minTierOpt == "Sólo SWING" ? 3 : minTierOpt == "Sólo INTRADÍA
 showStats     = input.bool(true, "Mostrar tabla de estadísticas por tipo", group = G_FILT)
 
 // --- Modo rango ---
-useRangeMode  = input.bool(true, "Operar scalps de rango cuando el mercado está lateral", group = G_RANGE,
+useRangeMode  = input.bool(false, "Operar scalps de rango cuando el mercado está lateral", group = G_RANGE,
      tooltip = "Cuando el ADX de la confirmación (1h) está por debajo del mínimo, el mercado está en rango: se compra en la zona baja de la banda de 1h y se vende en la zona alta, tras toma de liquidez + CHOCH del gráfico. Salida rápida y completa en el objetivo, sin runner. Funciona en compras y ventas.")
 rangeZonePct  = input.float(25, "Zona de entrada: % extremo de la banda 1h", minval = 5, maxval = 50, step = 5, group = G_RANGE,
      tooltip = "25 = compra sólo si el precio tocó el 25% inferior de la banda de 1h (venta: 25% superior).")
@@ -601,6 +604,19 @@ rgLongSetup  = rangeRegime and bullChochL and rgLowRecent  and scalpBullLiqOk an
 rgShortSetup = rangeRegime and bearChochL and rgHighRecent and scalpBearLiqOk and dispOk and close > rgShortTp
 
 // =====================================================================================================
+// 6c. MOTOR RUPTURA BB CON TENDENCIA (recomendado, validado en backtest)
+// Compra: el gráfico cierra por encima de la banda BB superior (cruce) con estructura alcista en la
+// confirmación y en la macro, y la macro cerrando por encima de su media BB. Venta: espejo.
+// Stop: extremo de las últimas 5 velas -/+ 0.5 ATR (mínimo 1 ATR). Objetivo: X R.
+// =====================================================================================================
+boTrendUp    = tr4 == 1  and cl4 > mid4 and tr1 == 1
+boTrendDn    = tr4 == -1 and cl4 < mid4 and tr1 == -1
+boLongSetup  = useBreakout and boTrendUp and close > bbUp and close[1] <= bbUp[1]
+boShortSetup = useBreakout and boTrendDn and close < bbLo and close[1] >= bbLo[1]
+boLongSl     = math.min(ta.lowest(low, 5)  - 0.5 * atr, close - atr)
+boShortSl    = math.max(ta.highest(high, 5) + 0.5 * atr, close + atr)
+
+// =====================================================================================================
 // 7. ESTADO DE LA OPERACIÓN Y GESTIÓN
 // =====================================================================================================
 var int    posDir      = 0      // 1 largo, -1 corto, 0 sin operación
@@ -618,6 +634,7 @@ var bool   partialDone = false
 var bool   beDone      = false
 var bool   trailActive = false
 var bool   posRange    = false  // scalp de rango: salida completa en el objetivo
+var bool   posBO       = false  // ruptura BB con tendencia: objetivo fijo en R
 var float  tp1Liq      = na     // 1er objetivo: primera zona de liquidez HTF
 var float  tp2Liq      = na     // 2º objetivo (runner): siguiente zona de liquidez HTF
 
@@ -641,7 +658,7 @@ if pending and strategy.position_size != 0 and math.sign(strategy.position_size)
     entryRef  := strategy.position_avg_price
     riskR     := math.abs(entryRef - stopPrice)
     if not posRange
-        targetPrice := entryRef + posDir * riskR * f_rr(posTier)
+        targetPrice := entryRef + posDir * riskR * (posBO ? rrBreakout : f_rr(posTier))
 
 pendingExpired = pending and strategy.position_size == 0 and bar_index > pendingBar + (pendingLimit ? scalpLimitExpiry : 1)
 if pendingExpired
@@ -664,6 +681,7 @@ if pendingExpired or (not pending and posDir != 0 and strategy.position_size == 
     tp1Liq      := na
     tp2Liq      := na
     posRange    := false
+    posBO       := false
 
 // --- 7.2 Gestión de la posición abierta ---
 inPos = not pending and posDir != 0 and strategy.position_size != 0
@@ -691,7 +709,7 @@ if inPos
             stopPrice := posDir == 1 ? math.max(stopPrice, beStop) : math.min(stopPrice, beStop)
 
     // Objetivos por zonas de liquidez: se recalculan cada vela (las bandas se mueven)
-    if useLiqExit and not posRange
+    if useLiqExit and not posRange and not posBO
         t1 = f_nextLevel(entryRef, posDir, 0.0)
         t1 := na(t1) ? entryRef + posDir * riskR * f_rr(posTier) : t1
         // nunca por debajo de 1R: si la zona se acercó, el 1er objetivo queda en 1R
@@ -722,10 +740,10 @@ exitShortHtf = inPos and posDir == -1 and posTier >= 2 and closeOnChoch and bull
 // --- 7.3 Nuevas señales ---
 // Registro de operaciones cerradas: pausa tras pérdida + estadísticas por tipo
 // Índices de estadísticas: motor (0 = CHOCH, 1 = Pullback) * 3 + (tier - 1)
-var array<int>   stTrades = array.new<int>(7, 0)
-var array<int>   stWins   = array.new<int>(7, 0)
-var array<float> stGW     = array.new<float>(7, 0.0)
-var array<float> stGL     = array.new<float>(7, 0.0)
+var array<int>   stTrades = array.new<int>(8, 0)
+var array<int>   stWins   = array.new<int>(8, 0)
+var array<float> stGW     = array.new<float>(8, 0.0)
+var array<float> stGL     = array.new<float>(8, 0.0)
 var int   seenClosed  = 0
 var int   lastLossBarL = na
 var int   lastLossBarS = na
@@ -737,7 +755,7 @@ f_statIdx(string c) =>
     int rg = str.contains(c, " RG") ? 1 : 0
     int t = str.contains(c, "SWING") ? 3 : str.contains(c, "INTRAD") ? 2 : 1
     int e = str.contains(c, " PB") ? 1 : 0
-    rg == 1 ? 6 : e * 3 + t - 1
+    str.contains(c, " BO") ? 7 : rg == 1 ? 6 : e * 3 + t - 1
 
 f_finalize(int idx, float pnl) =>
     if not na(idx)
@@ -809,8 +827,12 @@ rgOkS = allowShort and canTrade and coolShortOk and barstate.isconfirmed
 longRange  = rgOkL and rgLongSetup  and (flat or canRevShort) and f_riskOk(close - scLongSlF, close)  and (rgLongTp - close)  >= rangeMinRR * (close - scLongSlF)
 shortRange = rgOkS and rgShortSetup and (flat or canRevLong)  and f_riskOk(scShortSlF - close, close) and (close - rgShortTp) >= rangeMinRR * (scShortSlF - close)
 
-longSignal  = longScalp or longPb or longRange
-shortSignal = not longSignal and (shortScalp or shortPb or shortRange)
+longBO      = allowLong  and canTrade and coolLongOk  and barstate.isconfirmed and boLongSetup  and flat
+shortBO     = allowShort and canTrade and coolShortOk and barstate.isconfirmed and boShortSetup and flat
+longSignal  = longScalp or longPb or longRange or longBO
+shortSignal = not longSignal and (shortScalp or shortPb or shortRange or shortBO)
+isBOL       = longBO  and not longScalp  and not longPb  and not longRange
+isBOS       = shortBO and not shortScalp and not shortPb and not shortRange
 isRangeL    = longRange  and not longScalp  and not longPb
 isRangeS    = shortRange and not shortScalp and not shortPb
 
@@ -839,6 +861,15 @@ if longSignal
     trailActive := false
     lastBullLiqBar := na
     posRange    := isRangeL
+    posBO       := isBOL
+    if isBOL
+        posTier      := 3
+        posType      := "Ruptura BB " + ltfName + " · " + htfName + "+" + macroName + " ✓"
+        pendingLimit := false
+        entryRef     := close
+        stopPrice    := boLongSl
+        riskR        := entryRef - stopPrice
+        targetPrice  := entryRef + riskR * rrBreakout
     if isRangeL
         posTier      := 1
         posType      := "Rango " + htfName + " · CHOCH " + ltfName
@@ -847,12 +878,12 @@ if longSignal
         stopPrice    := scLongSlF
         riskR        := entryRef - stopPrice
         targetPrice  := rgLongTp
-    entryCmt = isRangeL ? "RANGO L RG" : f_tierName(posTier) + " L" + (longPb ? " PB" : " CH")
+    entryCmt = isBOL ? "RUPTURA L BO" : isRangeL ? "RANGO L RG" : f_tierName(posTier) + " L" + (longPb ? " PB" : " CH")
     if pendingLimit
         strategy.entry("Long", strategy.long, qty = useRiskSizing ? f_qty(entryRef, stopPrice) : na, limit = entryRef, comment = entryCmt)
     else
         strategy.entry("Long", strategy.long, qty = useRiskSizing ? f_qty(entryRef, stopPrice) : na, comment = entryCmt)
-    label.new(bar_index, low, isRangeL ? "COMPRA ▲ RANGO (rápido)\n" + posType + "\nTP " + str.tostring((targetPrice - entryRef) / riskR, "#.#") + "R" : "COMPRA ▲ " + f_tierName(posTier) + "\n" + posType + "\n" + (useLiqExit ? "Recorrido " + str.tostring((tp1Liq - entryRef) / riskR, "#.#") + "R" : "TP 1:" + str.tostring(f_rr(posTier))),
+    label.new(bar_index, low, isBOL ? "COMPRA ▲ RUPTURA\n" + posType + "\nTP " + str.tostring(rrBreakout) + "R" : isRangeL ? "COMPRA ▲ RANGO (rápido)\n" + posType + "\nTP " + str.tostring((targetPrice - entryRef) / riskR, "#.#") + "R" : "COMPRA ▲ " + f_tierName(posTier) + "\n" + posType + "\n" + (useLiqExit ? "Recorrido " + str.tostring((tp1Liq - entryRef) / riskR, "#.#") + "R" : "TP 1:" + str.tostring(f_rr(posTier))),
          style = label.style_label_up, color = f_dirColor(1, posTier), textcolor = color.black, size = posTier == 1 ? size.small : size.normal)
 
 if shortSignal
@@ -874,6 +905,15 @@ if shortSignal
     trailActive := false
     lastBearLiqBar := na
     posRange    := isRangeS
+    posBO       := isBOS
+    if isBOS
+        posTier      := 3
+        posType      := "Ruptura BB " + ltfName + " · " + htfName + "+" + macroName + " ✓"
+        pendingLimit := false
+        entryRef     := close
+        stopPrice    := boShortSl
+        riskR        := stopPrice - entryRef
+        targetPrice  := entryRef - riskR * rrBreakout
     if isRangeS
         posTier      := 1
         posType      := "Rango " + htfName + " · CHOCH " + ltfName
@@ -882,12 +922,12 @@ if shortSignal
         stopPrice    := scShortSlF
         riskR        := stopPrice - entryRef
         targetPrice  := rgShortTp
-    entryCmt = isRangeS ? "RANGO S RG" : f_tierName(posTier) + " S" + (shortPb ? " PB" : " CH")
+    entryCmt = isBOS ? "RUPTURA S BO" : isRangeS ? "RANGO S RG" : f_tierName(posTier) + " S" + (shortPb ? " PB" : " CH")
     if pendingLimit
         strategy.entry("Short", strategy.short, qty = useRiskSizing ? f_qty(entryRef, stopPrice) : na, limit = entryRef, comment = entryCmt)
     else
         strategy.entry("Short", strategy.short, qty = useRiskSizing ? f_qty(entryRef, stopPrice) : na, comment = entryCmt)
-    label.new(bar_index, high, isRangeS ? "VENTA ▼ RANGO (rápido)\n" + posType + "\nTP " + str.tostring((entryRef - targetPrice) / riskR, "#.#") + "R" : "VENTA ▼ " + f_tierName(posTier) + "\n" + posType + "\n" + (useLiqExit ? "Recorrido " + str.tostring((entryRef - tp1Liq) / riskR, "#.#") + "R" : "TP 1:" + str.tostring(f_rr(posTier))),
+    label.new(bar_index, high, isBOS ? "VENTA ▼ RUPTURA\n" + posType + "\nTP " + str.tostring(rrBreakout) + "R" : isRangeS ? "VENTA ▼ RANGO (rápido)\n" + posType + "\nTP " + str.tostring((entryRef - targetPrice) / riskR, "#.#") + "R" : "VENTA ▼ " + f_tierName(posTier) + "\n" + posType + "\n" + (useLiqExit ? "Recorrido " + str.tostring((entryRef - tp1Liq) / riskR, "#.#") + "R" : "TP 1:" + str.tostring(f_rr(posTier))),
          style = label.style_label_down, color = f_dirColor(-1, posTier), textcolor = color.white, size = posTier == 1 ? size.small : size.normal)
 
 // Cierres por CHOCH en contra (si no se ha abierto ya una reversa en esta vela)
@@ -901,9 +941,9 @@ if (exitShortLtf or exitShortHtf) and not longSignal
 // Ambas órdenes comparten el mismo stop, así el SL / breakeven / trailing cubre toda la posición.
 activeCtx = posDir != 0 and (pending or strategy.position_size != 0)
 if activeCtx
-    finalTp    = posRange ? targetPrice : useLiqExit ? tp2Liq : posTier == 3 and swingNoFixedTP ? na : targetPrice
-    hasPartial = not posRange and (useLiqExit or (useRunner and posTier >= 2) or (posTier == 1 and scalpPartialBB))
-    tp1Raw     = posRange ? targetPrice : useLiqExit ? tp1Liq : posTier >= 2 ? entryRef + posDir * riskR * partialAtR : (posDir == 1 ? bbUp : bbLo)
+    finalTp    = posRange or posBO ? targetPrice : useLiqExit ? tp2Liq : posTier == 3 and swingNoFixedTP ? na : targetPrice
+    hasPartial = not posRange and not posBO and (useLiqExit or (useRunner and posTier >= 2) or (posTier == 1 and scalpPartialBB))
+    tp1Raw     = posRange or posBO ? targetPrice : useLiqExit ? tp1Liq : posTier >= 2 ? entryRef + posDir * riskR * partialAtR : (posDir == 1 ? bbUp : bbLo)
     tp1Valid   = posDir == 1 ? tp1Raw > close and (na(finalTp) or tp1Raw < finalTp) : tp1Raw < close and (na(finalTp) or tp1Raw > finalTp)
     tp1Limit   = hasPartial and tp1Valid ? tp1Raw : finalTp
     entryId    = posDir == 1 ? "Long" : "Short"
@@ -914,7 +954,7 @@ if activeCtx
         strategy.exit(pfx + "-TP1", from_entry = entryId, qty_percent = partialPct, limit = tp1Limit, stop = stopPrice,
              comment_profit = hasPartial and tp1Valid ? (useLiqExit ? "Zona liq. 1" : "TP parcial") : posRange ? "TP rango" : "TP " + f_tierName(posTier), comment_loss = lossTxt)
     strategy.exit(pfx + "-TP2", from_entry = entryId, limit = finalTp, stop = stopPrice,
-         comment_profit = posRange ? "TP rango" : useLiqExit ? "Zona liq. 2" : "TP " + f_tierName(posTier), comment_loss = lossTxt)
+         comment_profit = posBO ? "TP ruptura" : posRange ? "TP rango" : useLiqExit ? "Zona liq. 2" : "TP " + f_tierName(posTier), comment_loss = lossTxt)
 
 // =====================================================================================================
 // 8. VISUALIZACIÓN
@@ -1015,7 +1055,8 @@ if showPanel and barstate.islast
     nextTxt = bearTrend ? (trL == -1 ? "Esperar rebote a BB sup." : "CHOCH ↓ " + ltfName + " = VENTA") :
          bullTrend ? (trL == 1 ? "Esperar retroceso a BB inf." : "CHOCH ↑ " + ltfName + " = COMPRA") :
          "CHOCH " + ltfName + " tras barrido"
-    r := f_row(r, "Esperar", nextTxt, na, color.yellow)
+    boTxt = boTrendUp ? "Cierre sobre BB sup. = COMPRA" : boTrendDn ? "Cierre bajo BB inf. = VENTA" : "Sin tendencia " + htfName + "+" + macroName + ": no operar"
+    r := f_row(r, "Esperar", useBreakout and not usePullback ? boTxt : nextTxt, na, color.yellow)
     upLv = f_nextLevel(close, 1, 0.0)
     dnLv = f_nextLevel(close, -1, 0.0)
     r := f_row(r, "Recorrido ↑ / ↓", (na(upLv) ? "libre" : str.tostring((upLv - close) / close * 100, "#.##") + "%") + " / " + (na(dnLv) ? "libre" : str.tostring((close - dnLv) / close * 100, "#.##") + "%"), na, w)
@@ -1047,7 +1088,7 @@ if showPanel and barstate.islast
             r := f_row(r, "Rombo / $", "CHOCH del " + ltfName + " / barrido de liquidez", na, w)
 
 // --- Tabla de estadísticas por tipo de entrada (para afinar) ---
-var table stats = table.new(position.bottom_left, 5, 10, bgcolor = color.new(color.black, 15), border_color = color.new(color.gray, 60), border_width = 1, frame_color = color.gray, frame_width = 1)
+var table stats = table.new(position.bottom_left, 5, 11, bgcolor = color.new(color.black, 15), border_color = color.new(color.gray, 60), border_width = 1, frame_color = color.gray, frame_width = 1)
 
 f_statRow(int row, string name, int n, int w, float gw, float gl) =>
     pf   = gl > 0 ? gw / gl : na
@@ -1074,19 +1115,19 @@ if showStats and barstate.islast
     table.cell(stats, 2, 0, "Acierto", bgcolor = hdr, text_color = color.white, text_size = tblSize)
     table.cell(stats, 3, 0, "PF",      bgcolor = hdr, text_color = color.white, text_size = tblSize)
     table.cell(stats, 4, 0, "Neto",    bgcolor = hdr, text_color = color.white, text_size = tblSize)
-    names = array.from("SCALP CH", "INTRA CH", "SWING CH", "SCALP PB", "INTRA PB", "SWING PB", "RANGO")
+    names = array.from("SCALP CH", "INTRA CH", "SWING CH", "SCALP PB", "INTRA PB", "SWING PB", "RANGO", "RUPTURA")
     int   tn  = 0
     int   tw  = 0
     float tgw = 0.0
     float tgl = 0.0
-    for k = 0 to 6
+    for k = 0 to 7
         f_statRow(k + 1, array.get(names, k), array.get(tr, k), array.get(wn, k), array.get(stGW, k), array.get(stGL, k))
         tn  += array.get(tr, k)
         tw  += array.get(wn, k)
         tgw += array.get(stGW, k)
         tgl += array.get(stGL, k)
-    f_statRow(8, "TOTAL", tn, tw, tgw, tgl)
-    table.cell(stats, 0, 9, "PF > 1 = gana", text_color = color.gray, text_size = size.tiny, text_halign = text.align_left)
+    f_statRow(9, "TOTAL", tn, tw, tgw, tgl)
+    table.cell(stats, 0, 10, "PF > 1 = gana", text_color = color.gray, text_size = size.tiny, text_halign = text.align_left)
 
 // =====================================================================================================
 // 10. ALERTAS (usar "Crear alerta" -> "alert() function calls only")

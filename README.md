@@ -4,7 +4,13 @@
 
 Archivo: [`SMC_MTF_Bollinger_Strategy.pine`](SMC_MTF_Bollinger_Strategy.pine)
 
-### Motores de entrada
+### Motor recomendado (validado en backtest): Ruptura BB con tendencia
+Usar en el gráfico de **4h** (confirmación Diario, macro Semanal, automático). Compra cuando el gráfico cierra por
+encima de la banda BB superior con estructura alcista en D y W y el semanal sobre su media BB; venta espejo.
+Stop en el extremo de 5 velas ± 0.5 ATR, objetivo 3R, breakeven en 1.5R, cierre si hay CHOCH diario en contra.
+Resultados completos en [`backtest/RESULTADOS.md`](backtest/RESULTADOS.md).
+
+### Motores de entrada (opcionales, sin ventaja en el backtest)
 | Motor | Cuándo entra |
 |---|---|
 | **Pullback BB** | Tendencia 4h + 1h alineada, retroceso a la banda de Bollinger contraria del LTF, toma de liquidez (barrido / FVG / extremos BB 4h-1h) y patrón de giro. |

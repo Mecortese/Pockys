@@ -1,0 +1,42 @@
+R medio neto por operación con objetivo 2R, por período:
+ per                                   2020-06  2022-01  2023-07  2025-01
+trig                        sym                                         
+CHOCH_con_tendencia         NAS100        NaN      NaN   -0.271   -0.041
+                            PAXGUSDT   -0.439   -0.277   -0.416   -0.073
+                            SOLUSDT     0.245    0.052   -0.027   -0.251
+                            XAUUSD        NaN      NaN    0.011    0.203
+Donchian20_macro            NAS100        NaN      NaN   -0.007   -0.090
+                            PAXGUSDT   -0.182   -0.101    0.115    0.208
+                            SOLUSDT     0.107    0.061    0.119    0.091
+                            XAUUSD        NaN      NaN   -0.298    0.206
+Rebote_media_BB_tendencia   NAS100        NaN      NaN   -0.237   -0.179
+                            PAXGUSDT   -0.422    0.011   -0.297   -0.197
+                            SOLUSDT     0.026   -0.111    0.010    0.035
+                            XAUUSD        NaN      NaN   -0.367   -0.104
+Rechazo_banda_ext_tendencia NAS100        NaN      NaN   -0.194   -0.258
+                            PAXGUSDT   -0.307   -0.167   -0.253   -0.162
+                            SOLUSDT    -0.081   -0.072   -0.008   -0.285
+                            XAUUSD        NaN      NaN   -0.406   -0.073
+Reversion_rango_1h          NAS100        NaN      NaN   -0.354   -0.322
+                            PAXGUSDT   -0.137   -0.365   -0.205   -0.332
+                            SOLUSDT    -0.268   -0.252   -0.260   -0.342
+                            XAUUSD        NaN      NaN    0.048   -0.455
+Ruptura_banda_BB_macro      NAS100        NaN      NaN   -0.104   -0.039
+                            PAXGUSDT   -0.243   -0.225   -0.145    0.107
+                            SOLUSDT     0.110    0.053    0.004    0.109
+                            XAUUSD        NaN      NaN   -0.248    0.112
+Ruptura_banda_BB_tendencia  NAS100        NaN      NaN   -0.248    0.010
+                            PAXGUSDT   -0.407   -0.223   -0.128    0.079
+                            SOLUSDT     0.073    0.101    0.031    0.054
+                            XAUUSD        NaN      NaN    0.199    0.123
+
+Total (todos los activos y períodos):
+                                   n     R1     R2     R3
+trig                                                    
+CHOCH_con_tendencia          1162.0 -0.110 -0.086 -0.046
+Donchian20_macro             6516.0 -0.012  0.061  0.103
+Rebote_media_BB_tendencia    6020.0 -0.163 -0.153 -0.120
+Rechazo_banda_ext_tendencia  6242.0 -0.127 -0.187 -0.179
+Reversion_rango_1h           1262.0 -0.190 -0.288 -0.302
+Ruptura_banda_BB_macro       4342.0 -0.052 -0.019  0.027
+Ruptura_banda_BB_tendencia   2420.0 -0.052 -0.020  0.017

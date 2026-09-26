@@ -1,0 +1,28 @@
+R medio neto por operación con objetivo 2R, por período:
+ per                                  2020-06  2022-01  2023-07  2025-01
+trig                        sym                                        
+CHOCH_con_tendencia         BTCUSDT    0.284   -0.425   -0.107   -0.475
+                            ETHUSDT    0.273    0.000    0.012   -0.068
+Donchian20_macro            BTCUSDT    0.244   -0.091    0.299   -0.062
+                            ETHUSDT    0.372    0.079   -0.003   -0.092
+Rebote_media_BB_tendencia   BTCUSDT    0.127   -0.394   -0.065   -0.393
+                            ETHUSDT    0.002   -0.241   -0.046   -0.142
+Rechazo_banda_ext_tendencia BTCUSDT    0.432    0.061    0.126   -0.242
+                            ETHUSDT    0.248    0.189    0.088   -0.167
+Reversion_rango_1h          BTCUSDT   -0.751    0.128   -0.268    0.138
+                            ETHUSDT   -0.053    0.371    0.255   -0.469
+Ruptura_banda_BB_macro      BTCUSDT    0.310    0.007    0.125   -0.126
+                            ETHUSDT    0.477   -0.067    0.077   -0.022
+Ruptura_banda_BB_tendencia  BTCUSDT    0.580    0.032    0.376   -0.577
+                            ETHUSDT    0.579   -0.001    0.219    0.171
+
+Total (todos los activos y períodos):
+                                   n     R1     R2     R3
+trig                                                    
+CHOCH_con_tendencia           308.0 -0.032 -0.044 -0.017
+Donchian20_macro             1344.0  0.041  0.117  0.215
+Rebote_media_BB_tendencia    1181.0 -0.093 -0.138 -0.142
+Rechazo_banda_ext_tendencia  1147.0  0.043  0.085  0.059
+Reversion_rango_1h            159.0 -0.073 -0.039 -0.025
+Ruptura_banda_BB_macro        899.0  0.049  0.112  0.194
+Ruptura_banda_BB_tendencia    508.0  0.086  0.222  0.317
