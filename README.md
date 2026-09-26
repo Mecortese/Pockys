@@ -39,6 +39,12 @@ En 1m ajusta comisión y slippage en *Properties*: con muchas operaciones pesan 
 - **Modo visual "Limpio"** (por defecto) oculta BB de 1h/4h, zonas de liquidez, FVG y barridos; "Completo" los muestra.
 - Usar en el gráfico de **15m / 5m / 1m**. En 1h o 4h las bandas de 1h/4h dejan de tener sentido y las entradas se bloquean.
 
+### Recorrido y salida por zonas de liquidez (por defecto)
+- **Filtro de recorrido**: antes de entrar se mide la distancia hasta la primera zona de liquidez HTF en contra
+  (banda BB opuesta de 1h/4h, swing high/low sin romper de 1h/4h). Si es menor que 2R, no se entra.
+- **Salida**: se cierra un % en la primera zona de liquidez (≥ 1R asegurado, normalmente ≥ 2R), el stop pasa a
+  breakeven y el resto corre hacia la siguiente zona con trailing ATR, o hasta un CHOCH de 1h en contra.
+
 ### Afinar con datos
 - **Tabla de estadísticas** (abajo a la izquierda): operaciones, % de acierto, PF y neto por tipo (SCALP / INTRADÍA / SWING × CHOCH / Pullback). Desactivá los tipos con PF < 1.
 - **Filtros de calidad**: ADX de 1h (rango vs. tendencia), estructura LTF girada a favor para los Pullback, riesgo mínimo vs. comisión, pausa tras pérdida, horario.
