@@ -75,6 +75,8 @@ G_RS        = "✅ Respaldo D+4h+1h (entradas de 5m)"
 rsTriggers  = input.string("CHOCH + Ruptura BB", "Gatillos de 5m", options = ["CHOCH + Ruptura BB", "Sólo CHOCH", "Sólo Ruptura BB"], group = G_RS,
      tooltip = "CHOCH: el 5m retrocede contra la tendencia mayor, toma liquidez y hace un CHOCH a favor. Ruptura BB: el 5m cierra fuera de la banda a favor de la tendencia. Ambos sólo cuentan si Diario, 4h y 1h están a favor.")
 rsNeedLiq   = input.bool(true, "CHOCH: exigir toma de liquidez previa", group = G_RS)
+rsAntic     = input.bool(true, "Gráfico < 15m: sólo entradas anticipadas (15m todavía en retroceso)", group = G_RS,
+     tooltip = "Backtest 1 año BTC/ETH 5m con respaldo D+4h+1h: si el 15m todavía está en contra (retroceso) la señal de 5m dio +0.26R por operación; si el 15m ya giró a favor, sólo +0.05R. Entrar anticipando el giro del 15m da mejor precio.")
 rsBeR       = input.float(1.0, "Mover SL a la entrada al llegar a (R)", minval = 0.5, step = 0.25, group = G_RS)
 rsTargetR   = input.float(3.0, "Objetivo (R)", minval = 1, step = 0.5, group = G_RS,
      tooltip = "Backtest 1 año BTC/ETH 5m con respaldo D+4h+1h, SL a la entrada en +1R: objetivo 3R ≈ +0.13 a +0.15R netos por operación; sin respaldo, negativo.")
@@ -638,8 +640,14 @@ rsChL   = rsUseCh and bullChochL and (not rsNeedLiq or scalpBullLiqOk)
 rsChS   = rsUseCh and bearChochL and (not rsNeedLiq or scalpBearLiqOk)
 rsBbL   = rsUseBb and close > bbUp and close[1] <= bbUp[1]
 rsBbS   = rsUseBb and close < bbLo and close[1] >= bbLo[1]
-rsLongSetup  = useRS and respUp and (rsChL or rsBbL)
-rsShortSetup = useRS and respDn and (rsChS or rsBbS)
+// Estructura de 15m (vela cerrada) para las entradas anticipadas en gráficos menores a 15m
+f_tr15() =>
+    [t15, e15, c15, l15, h15, s15] = f_ms(2)
+    t15[1]
+tr15     = request.security(syminfo.tickerid, "15", f_tr15(), lookahead = barmerge.lookahead_on)
+anticOn  = rsAntic and chartSec < 900
+rsLongSetup  = useRS and respUp and (rsChL or rsBbL) and (not anticOn or tr15 != 1)
+rsShortSetup = useRS and respDn and (rsChS or rsBbS) and (not anticOn or tr15 != -1)
 rsLo10  = ta.lowest(low, 10)
 rsHi10  = ta.highest(high, 10)
 boShortSl    = math.max(ta.highest(high, 5) + 0.5 * atr, close + atr)
@@ -911,7 +919,7 @@ if longSignal
     posRS       := isRSL
     if isRSL
         posTier      := 3
-        posType      := (rsChL ? "Liquidez + CHOCH " : "Ruptura BB ") + ltfName + " · D+" + macroName + "+" + htfName + " ✓"
+        posType      := (rsChL ? "Liquidez + CHOCH " : "Ruptura BB ") + ltfName + " · D+" + macroName + "+" + htfName + " ✓" + (anticOn ? " · anticipada (15m en retroceso)" : "")
         pendingLimit := false
         entryRef     := close
         stopPrice    := rsLongSl
@@ -964,7 +972,7 @@ if shortSignal
     posRS       := isRSS
     if isRSS
         posTier      := 3
-        posType      := (rsChS ? "Liquidez + CHOCH " : "Ruptura BB ") + ltfName + " · D+" + macroName + "+" + htfName + " ✓"
+        posType      := (rsChS ? "Liquidez + CHOCH " : "Ruptura BB ") + ltfName + " · D+" + macroName + "+" + htfName + " ✓" + (anticOn ? " · anticipada (15m en retroceso)" : "")
         pendingLimit := false
         entryRef     := close
         stopPrice    := rsShortSl
@@ -1113,7 +1121,7 @@ if showPanel and barstate.islast
          bullTrend ? (trL == 1 ? "Esperar retroceso a BB inf." : "CHOCH ↑ " + ltfName + " = COMPRA") :
          "CHOCH " + ltfName + " tras barrido"
     boTxt = boTrendUp ? "Cierre sobre BB sup. = COMPRA" : boTrendDn ? "Cierre bajo BB inf. = VENTA" : "Sin tendencia " + htfName + "+" + macroName + ": no operar"
-    rsTxt = respUp ? "COMPRAS: liquidez + CHOCH ↑ o ruptura BB sup." : respDn ? "VENTAS: liquidez + CHOCH ↓ o ruptura BB inf." : "Sin respaldo D+" + macroName + "+" + htfName + ": no operar"
+    rsTxt = respUp ? (anticOn and tr15 == 1 ? "COMPRAS: esperar retroceso del 15m" : "COMPRAS: liquidez + CHOCH ↑ o ruptura BB sup.") : respDn ? (anticOn and tr15 == -1 ? "VENTAS: esperar retroceso del 15m" : "VENTAS: liquidez + CHOCH ↓ o ruptura BB inf.") : "Sin respaldo D+" + macroName + "+" + htfName + ": no operar"
     r := f_row(r, "Respaldo D+" + macroName + "+" + htfName, respUp ? "ALCISTA ✓" : respDn ? "BAJISTA ✓" : "NO", respUp ? color.new(color.green, 20) : respDn ? color.new(color.red, 20) : color.new(color.gray, 40), w)
     r := f_row(r, "Esperar", useRS ? rsTxt : useBreakout and not usePullback ? boTxt : nextTxt, na, color.yellow)
     upLv = f_nextLevel(close, 1, 0.0)

@@ -114,3 +114,14 @@ Gestión: SL a la entrada en +1R, objetivo 3R. R neto de comisión por señal (l
 | 1h | 2020-2025 | **+0.25R** | +0.11R | ~15 |
 | 4h | último año | −0.14R (92 señales) | +0.34R | ~4 |
 | 4h | 2020-2025 | **+0.56R** | +0.13R | ~4 |
+
+## 8. 5m: entradas anticipadas (15m todavía en retroceso)
+
+5m con respaldo D+4h+1h, último año, BTC + ETH, SL a la entrada en +1R, objetivo 3R:
+
+| Estructura 15m al momento de la señal | Señales | R medio | 1ª mitad / 2ª mitad |
+|---|---|---|---|
+| **En contra (retroceso)** | 1.301 | **+0.26R** | CHOCH +0.27 / +0.10 · Ruptura +0.44 / +0.25 |
+| Ya a favor | 1.601 | +0.05R | CHOCH −0.01 / −0.07 · Ruptura +0.13 / +0.02 |
+
+BTC: +0.17R vs +0.02R · ETH: +0.35R vs +0.08R. Activado por defecto en gráficos menores a 15m.

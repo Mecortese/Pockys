@@ -55,7 +55,7 @@ def run(sym, tf, start, end):
                     h3 = 1
                     break
             R = (3 if h3 else 0 if h1 else -1) - 2 * 0.0004 * e / risk
-            rows.append(dict(time=t[i], sym=sym, tf=tf, trig="CHOCH+liq" if CH[i] else "Ruptura BB", resp=resp(i, d), h1=int(bool(h1)), R=R))
+            rows.append(dict(time=t[i], sym=sym, tf=tf, trig="CHOCH+liq" if CH[i] else "Ruptura BB", resp=resp(i, d), dir=d, h1=int(bool(h1)), R=R))
     return pd.DataFrame(rows)
 
 if __name__ == "__main__":
