@@ -87,3 +87,17 @@ pero cortan mucho las caídas. Vender en corto empeora los resultados en los tre
 | Media 200, paridad de riesgo | 14.8% | −18.9% | 1.35 | −0.8% |
 
 Implementado en `Cartera_Tendencia_BTC_Oro_Nasdaq.pine` (tablero + estrategia sobre el gráfico diario).
+
+## 6. Entradas de 5m con respaldo D+4h+1h (objetivo del usuario: SL a la entrada y dejar correr) — `python3 be5.py BTCUSDT,ETHUSDT`
+
+Stop = extremo de 10 velas ± 0.3 ATR (mín. por comisión). Gestión: SL a la entrada al llegar a +1R, objetivo 3R.
+El precio llega a +1R antes del stop ~50% de las veces en cualquier contexto; lo que cambia con el respaldo es
+cuánto corre después.
+
+| Gatillo 5m | Con D+4h+1h a favor | Sin respaldo | 1ª mitad / 2ª mitad (con respaldo) |
+|---|---|---|---|
+| Ruptura banda BB | **+0.15R** | −0.08R | +0.23R / +0.08R |
+| CHOCH | **+0.13R** | −0.02R | +0.16R / +0.09R |
+| Rebote media BB | +0.15R | −0.04R | +0.32R / −0.02R (descartado) |
+
+Costo de comisión incluido (~0.18R por operación).

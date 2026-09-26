@@ -14,7 +14,14 @@ Tablero con estado y peso sugerido de los tres activos; revisar una vez por sema
 
 Archivo: [`SMC_MTF_Bollinger_Strategy.pine`](SMC_MTF_Bollinger_Strategy.pine)
 
-### Motor recomendado (validado en backtest): Ruptura BB con tendencia
+### Motor por defecto: Respaldo D+4h+1h (entradas de 5m, decisión manual)
+Sólo marca entradas de 5m cuando Diario, 4h y 1h están a favor: **toma de liquidez + CHOCH** a favor de la
+tendencia mayor, o **ruptura de la banda BB** a favor. Cada etiqueta muestra SL, el precio para mover el SL a la
+entrada (+1R) y el TP (3R). Backtest 1 año BTC/ETH 5m (backtest/be5.py), con SL a la entrada en +1R y objetivo 3R:
++0.13R (CHOCH) y +0.15R (ruptura BB) netos por operación, positivos en ambas mitades del año; las mismas
+señales sin respaldo dan negativo.
+
+### Ruptura BB con tendencia (4h)
 Usar en el gráfico de **4h** (confirmación Diario, macro Semanal, automático). Compra cuando el gráfico cierra por
 encima de la banda BB superior con estructura alcista en D y W y el semanal sobre su media BB; venta espejo.
 Stop en el extremo de 5 velas ± 0.5 ATR, objetivo 3R, breakeven en 1.5R, cierre si hay CHOCH diario en contra.
