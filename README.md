@@ -45,6 +45,15 @@ En 1m ajusta comisión y slippage en *Properties*: con muchas operaciones pesan 
 - **Salida**: se cierra un % en la primera zona de liquidez (≥ 1R asegurado, normalmente ≥ 2R), el stop pasa a
   breakeven y el resto corre hacia la siguiente zona con trailing ATR, o hasta un CHOCH de 1h en contra.
 
+### Modo rango (lateral)
+Cuando el ADX de 1h está bajo el mercado está en rango: se compra en el 25% inferior de la banda de 1h y se vende
+en el 25% superior, tras toma de liquidez + CHOCH del gráfico. Salida completa y rápida en la media de la banda
+de 1h (o en la banda opuesta). Etiqueta "RANGO (rápido)", fila propia en la tabla de estadísticas.
+
+### Multi-activo
+Todo se mide en ATR y porcentajes, así que sirve para BTC, otras criptos, oro o Nasdaq. Ajustá la comisión/spread
+del activo en *Propiedades* y en el input "Comisión por lado".
+
 ### Afinar con datos
 - **Tabla de estadísticas** (abajo a la izquierda): operaciones, % de acierto, PF y neto por tipo (SCALP / INTRADÍA / SWING × CHOCH / Pullback). Desactivá los tipos con PF < 1.
 - **Filtros de calidad**: ADX de 1h (rango vs. tendencia), estructura LTF girada a favor para los Pullback, riesgo mínimo vs. comisión, pausa tras pérdida, horario.
