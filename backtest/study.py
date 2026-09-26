@@ -28,7 +28,16 @@ def job(args):
     return out
 
 BO = {"useBreakout": True, "usePullback": False, "useScalp": False, "useRangeMode": False}
+RS = {"useRS": True, "usePullback": False, "useScalp": False, "useRangeMode": False}
 VARIANTS = {
+    "rs_base": RS,
+    "rs_BE1.5": {**RS, "rsBeR": 1.5},
+    "rs_sinBE": {**RS, "moveToBE": False},
+    "rs_2R": {**RS, "rsTargetR": 2.0},
+    "rs_2R_sinBE": {**RS, "rsTargetR": 2.0, "moveToBE": False},
+    "rs_sin_anticipo": {**RS, "rsAntic": False},
+    "rs_cost_maker": {**RS, "commSim": 0.02},
+    "rs_BE2": {**RS, "rsBeR": 2.0},
     "ruptura_3R": {**BO, "exitMode": "fixed"},
     "ruptura_3R_sinCHOCH": {**BO, "exitMode": "fixed", "closeOnChoch": False},
     "ruptura_3R_sinBE": {**BO, "exitMode": "fixed", "moveToBE": False},

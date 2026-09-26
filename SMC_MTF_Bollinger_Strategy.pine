@@ -77,9 +77,11 @@ rsTriggers  = input.string("CHOCH + Ruptura BB", "Gatillos de 5m", options = ["C
 rsNeedLiq   = input.bool(true, "CHOCH: exigir toma de liquidez previa", group = G_RS)
 rsAntic     = input.bool(true, "Gráfico < 15m: sólo entradas anticipadas (15m todavía en retroceso)", group = G_RS,
      tooltip = "Backtest 1 año BTC/ETH 5m con respaldo D+4h+1h: si el 15m todavía está en contra (retroceso) la señal de 5m dio +0.26R por operación; si el 15m ya giró a favor, sólo +0.05R. Entrar anticipando el giro del 15m da mejor precio.")
-rsBeR       = input.float(1.0, "Mover SL a la entrada al llegar a (R)", minval = 0.5, step = 0.25, group = G_RS)
+rsMoveBE    = input.bool(false, "Mover SL a la entrada", group = G_RS, inline = "rsbe",
+     tooltip = "Backtest 1 año (réplica exacta del Probador): mover el SL a la entrada en +1R hizo perder (BTC 5m -21%) porque el precio suele volver a la entrada antes de seguir; con stop fijo y objetivo 3R: BTC 5m +9.7%, BTC 15m +11.5%, ETH 15m +8.2%. Moverlo en +2R tampoco mejoró.")
+rsBeR       = input.float(2.0, "en (R)", minval = 0.5, step = 0.25, group = G_RS, inline = "rsbe")
 rsTargetR   = input.float(3.0, "Objetivo (R)", minval = 1, step = 0.5, group = G_RS,
-     tooltip = "Backtest 1 año BTC/ETH 5m con respaldo D+4h+1h, SL a la entrada en +1R: objetivo 3R ≈ +0.13 a +0.15R netos por operación; sin respaldo, negativo.")
+     tooltip = "Objetivo fijo en R. Backtest 1 año con stop fijo: 3R fue la mejor combinación.")
 allowLong   = input.bool(true, "Permitir largos", group = G_MODE)
 allowShort  = input.bool(true, "Permitir cortos", group = G_MODE)
 useRS       = entryEngine == "Respaldo D+4h+1h (5m)"
@@ -739,7 +741,7 @@ if inPos
              style = posDir == 1 ? label.style_label_up : label.style_label_down, color = f_dirColor(posDir, posTier), textcolor = color.black, size = size.small)
 
     // Breakeven al alcanzar X R (INTRADÍA / SWING)
-    if moveToBE and posTier >= 2 and not beDone
+    if moveToBE and posTier >= 2 and not beDone and (not posRS or rsMoveBE)
         beR     = posRS ? rsBeR : beAtR
         reached = posDir == 1 ? high >= entryRef + riskR * beR : low <= entryRef - riskR * beR
         if reached
@@ -938,7 +940,7 @@ if longSignal
         strategy.entry("Long", strategy.long, qty = useRiskSizing ? f_qty(entryRef, stopPrice) : na, limit = entryRef, comment = entryCmt)
     else
         strategy.entry("Long", strategy.long, qty = useRiskSizing ? f_qty(entryRef, stopPrice) : na, comment = entryCmt)
-    label.new(bar_index, low, isRSL ? "COMPRA ▲ con respaldo\n" + posType + "\nSL " + str.tostring(stopPrice, format.mintick) + " · SL a entrada en " + str.tostring(entryRef + riskR * rsBeR, format.mintick) + "\nTP " + str.tostring(targetPrice, format.mintick) + " (" + str.tostring(rsTargetR) + "R)" : isBOL ? "COMPRA ▲ RUPTURA\n" + posType + "\nTP " + str.tostring(rrBreakout) + "R" : isRangeL ? "COMPRA ▲ RANGO (rápido)\n" + posType + "\nTP " + str.tostring((targetPrice - entryRef) / riskR, "#.#") + "R" : "COMPRA ▲ " + f_tierName(posTier) + "\n" + posType + "\n" + (useLiqExit ? "Recorrido " + str.tostring((tp1Liq - entryRef) / riskR, "#.#") + "R" : "TP 1:" + str.tostring(f_rr(posTier))),
+    label.new(bar_index, low, isRSL ? "COMPRA ▲ con respaldo\n" + posType + "\nSL " + str.tostring(stopPrice, format.mintick) + (rsMoveBE ? " · SL a entrada en " + str.tostring(entryRef + riskR * rsBeR, format.mintick) : " (fijo)") + "\nTP " + str.tostring(targetPrice, format.mintick) + " (" + str.tostring(rsTargetR) + "R)" : isBOL ? "COMPRA ▲ RUPTURA\n" + posType + "\nTP " + str.tostring(rrBreakout) + "R" : isRangeL ? "COMPRA ▲ RANGO (rápido)\n" + posType + "\nTP " + str.tostring((targetPrice - entryRef) / riskR, "#.#") + "R" : "COMPRA ▲ " + f_tierName(posTier) + "\n" + posType + "\n" + (useLiqExit ? "Recorrido " + str.tostring((tp1Liq - entryRef) / riskR, "#.#") + "R" : "TP 1:" + str.tostring(f_rr(posTier))),
          style = label.style_label_up, color = f_dirColor(1, posTier), textcolor = color.black, size = posTier == 1 ? size.small : size.normal)
 
 if shortSignal
@@ -991,7 +993,7 @@ if shortSignal
         strategy.entry("Short", strategy.short, qty = useRiskSizing ? f_qty(entryRef, stopPrice) : na, limit = entryRef, comment = entryCmt)
     else
         strategy.entry("Short", strategy.short, qty = useRiskSizing ? f_qty(entryRef, stopPrice) : na, comment = entryCmt)
-    label.new(bar_index, high, isRSS ? "VENTA ▼ con respaldo\n" + posType + "\nSL " + str.tostring(stopPrice, format.mintick) + " · SL a entrada en " + str.tostring(entryRef - riskR * rsBeR, format.mintick) + "\nTP " + str.tostring(targetPrice, format.mintick) + " (" + str.tostring(rsTargetR) + "R)" : isBOS ? "VENTA ▼ RUPTURA\n" + posType + "\nTP " + str.tostring(rrBreakout) + "R" : isRangeS ? "VENTA ▼ RANGO (rápido)\n" + posType + "\nTP " + str.tostring((entryRef - targetPrice) / riskR, "#.#") + "R" : "VENTA ▼ " + f_tierName(posTier) + "\n" + posType + "\n" + (useLiqExit ? "Recorrido " + str.tostring((entryRef - tp1Liq) / riskR, "#.#") + "R" : "TP 1:" + str.tostring(f_rr(posTier))),
+    label.new(bar_index, high, isRSS ? "VENTA ▼ con respaldo\n" + posType + "\nSL " + str.tostring(stopPrice, format.mintick) + (rsMoveBE ? " · SL a entrada en " + str.tostring(entryRef - riskR * rsBeR, format.mintick) : " (fijo)") + "\nTP " + str.tostring(targetPrice, format.mintick) + " (" + str.tostring(rsTargetR) + "R)" : isBOS ? "VENTA ▼ RUPTURA\n" + posType + "\nTP " + str.tostring(rrBreakout) + "R" : isRangeS ? "VENTA ▼ RANGO (rápido)\n" + posType + "\nTP " + str.tostring((entryRef - targetPrice) / riskR, "#.#") + "R" : "VENTA ▼ " + f_tierName(posTier) + "\n" + posType + "\n" + (useLiqExit ? "Recorrido " + str.tostring((entryRef - tp1Liq) / riskR, "#.#") + "R" : "TP 1:" + str.tostring(f_rr(posTier))),
          style = label.style_label_down, color = f_dirColor(-1, posTier), textcolor = color.white, size = posTier == 1 ? size.small : size.normal)
 
 // Cierres por CHOCH en contra (si no se ha abierto ya una reversa en esta vela)
@@ -1072,7 +1074,7 @@ plotshape(showSwings and sweepHigh, "Barrido máximo (liquidez)", shape.xcross, 
 showLvl = showLevels and strategy.position_size != 0
 plot(showLvl ? stopPrice   : na, "Stop Loss / Trailing", color = color.red,  style = plot.style_linebr, linewidth = 2)
 plot(showLvl and useLiqExit and not partialDone ? tp1Liq : na, "Objetivo 1 (zona de liquidez)", color = color.new(color.lime, 40), style = plot.style_linebr, linewidth = 1)
-plot(showLvl and posRS and not beDone ? entryRef + posDir * riskR * rsBeR : na, "Nivel para mover SL a la entrada", color = color.new(color.yellow, 20), style = plot.style_linebr, linewidth = 1)
+plot(showLvl and posRS and rsMoveBE and not beDone ? entryRef + posDir * riskR * rsBeR : na, "Nivel para mover SL a la entrada", color = color.new(color.yellow, 20), style = plot.style_linebr, linewidth = 1)
 plot(showLvl ? targetPrice : na, "Take Profit",          color = color.lime, style = plot.style_linebr, linewidth = 2)
 plot(showLvl ? strategy.position_avg_price : na, "Precio entrada", color = color.gray, style = plot.style_linebr)
 

@@ -88,7 +88,7 @@ pero cortan mucho las caídas. Vender en corto empeora los resultados en los tre
 
 Implementado en `Cartera_Tendencia_BTC_Oro_Nasdaq.pine` (tablero + estrategia sobre el gráfico diario).
 
-## 6. Entradas de 5m con respaldo D+4h+1h (objetivo del usuario: SL a la entrada y dejar correr) — `python3 be5.py BTCUSDT,ETHUSDT`
+## 6. ⚠ INVÁLIDO (ver sección 9) — Entradas de 5m con respaldo D+4h+1h (objetivo del usuario: SL a la entrada y dejar correr) — `python3 be5.py BTCUSDT,ETHUSDT`
 
 Stop = extremo de 10 velas ± 0.3 ATR (mín. por comisión). Gestión: SL a la entrada al llegar a +1R, objetivo 3R.
 El precio llega a +1R antes del stop ~50% de las veces en cualquier contexto; lo que cambia con el respaldo es
@@ -102,7 +102,7 @@ cuánto corre después.
 
 Costo de comisión incluido (~0.18R por operación).
 
-## 7. Motor "Respaldo" en 5m / 15m / 1h / 4h (BTC + ETH) — `python3 be_tf.py`
+## 7. ⚠ INVÁLIDO (ver sección 9) — Motor "Respaldo" en 5m / 15m / 1h / 4h (BTC + ETH) — `python3 be_tf.py`
 
 Gestión: SL a la entrada en +1R, objetivo 3R. R neto de comisión por señal (las señales pueden superponerse).
 
@@ -115,7 +115,7 @@ Gestión: SL a la entrada en +1R, objetivo 3R. R neto de comisión por señal (l
 | 4h | último año | −0.14R (92 señales) | +0.34R | ~4 |
 | 4h | 2020-2025 | **+0.56R** | +0.13R | ~4 |
 
-## 8. 5m: entradas anticipadas (15m todavía en retroceso)
+## 8. ⚠ INVÁLIDO (ver sección 9) — 5m: entradas anticipadas (15m todavía en retroceso)
 
 5m con respaldo D+4h+1h, último año, BTC + ETH, SL a la entrada en +1R, objetivo 3R:
 
@@ -125,3 +125,21 @@ Gestión: SL a la entrada en +1R, objetivo 3R. R neto de comisión por señal (l
 | Ya a favor | 1.601 | +0.05R | CHOCH −0.01 / −0.07 · Ruptura +0.13 / +0.02 |
 
 BTC: +0.17R vs +0.02R · ETH: +0.35R vs +0.08R. Activado por defecto en gráficos menores a 15m.
+
+## 9. Corrección: réplica exacta del Probador (una operación a la vez) — `study.py ... rs_*`
+
+Las secciones 6-8 tenían un error: al llegar a +1R no se aplicaba el SL movido a la entrada, así que operaciones
+que volvían a la entrada se contaban igual como +3R. La réplica exacta coincide con TradingView
+(BTC 5m, 6-26 sep 2026: réplica −4.6%, Probador −3.0%).
+
+Último año, riesgo 0.5% por operación, comisión 0.04%:
+
+| Gestión | BTC 5m | BTC 15m | ETH 5m | ETH 15m |
+|---|---|---|---|---|
+| SL a la entrada en +1R, TP 3R | −20.8% (PF 0.73) | +7.3% (1.18) | −4.0% (0.94) | +1.6% (1.04) |
+| SL a la entrada en +2R, TP 3R | +5.3% (1.06) | +7.4% (1.17) | −9.1% (0.89) | +1.5% (1.04) |
+| **Stop fijo, TP 3R** | **+9.7% (1.10)** | **+11.5% (1.28)** | +0.2% (1.00) | **+8.2% (1.20)** |
+| Stop fijo, TP 2R | −6.3% (0.93) | +2.3% (1.04) | −8.7% (0.90) | +6.3% (1.13) |
+
+Stop fijo + 3R: BTC 5m positivo en ambas mitades (+3.0% / +6.7%), BTC 15m (+5.7% / +5.8%),
+ETH 15m (+8.4% / −0.2%). Mover el SL a la entrada temprano corta las operaciones que después llegan a 3R.

@@ -33,6 +33,10 @@ class Params:
     use4hBasisFilter: bool = True
     use1hStructure: bool = True
     # motores
+    useRS: bool = False             # Respaldo D+macro+conf con gatillos CHOCH+liquidez / ruptura BB
+    rsAntic: bool = True
+    rsBeR: float = 1.0
+    rsTargetR: float = 3.0
     useBreakout: bool = False       # Ruptura de banda BB a favor de la tendencia HTF
     breakoutTrendMode: str = "tendencia"   # "tendencia" (estructura conf+macro y precio vs media macro) | "macro"
     rrBreakout: float = 3.0
@@ -306,6 +310,15 @@ class Sim:
         self.highestSc = s(h).rolling(p.scalpSlLookback, min_periods=1).max().values
         self.lowestPb = s(l).rolling(p.pbTurnWindow, min_periods=1).min().values
         self.highestPb = s(h).rolling(p.pbTurnWindow, min_periods=1).max().values
+        self.lo10 = s(l).rolling(10, min_periods=1).min().values
+        self.hi10 = s(h).rolling(10, min_periods=1).max().values
+        if p.useRS:
+            from be5 import daily_trend
+            D = daily_trend(src, self.t)
+            self.dUp, self.dTr = D["dUp"].values, D["dTr"].values
+            d15 = resample(src, "15")
+            t15, *_ = market_structure(d15.high.values, d15.low.values, d15.close.values, 2)
+            self.tr15 = map_htf(self.t, d15, {"tr": t15}, "15")["tr"] if self.tf == "5" else np.full(len(c), np.nan)
         self.lo5 = s(l).rolling(5, min_periods=1).min().values
         self.hi5 = s(h).rolling(5, min_periods=1).max().values
 
@@ -333,6 +346,8 @@ class Sim:
         end = pd.Timestamp(self.end, tz="UTC") if self.end else None
 
         def rr(tier):
+            if posRS:
+                return p.rsTargetR
             if posBO:
                 return p.rrBreakout
             return p.rrSwing if tier == 3 else p.rrIntra if tier == 2 else p.rrScalp
@@ -372,6 +387,7 @@ class Sim:
         partialDone = beDone = False
         tp1Liq = tp2Liq = NA
         posBO = False
+        posRS = False
         extreme = NA
         lastLossL = lastLossS = None
         # ---- estado del broker ----
@@ -603,6 +619,20 @@ class Sim:
                 boLong = boShort = False
                 boLongSl = boShortSl = NA
 
+            # --- Motor respaldo ---
+            rsL = rsS = False
+            if p.useRS and i > 0:
+                dU, dT = self.dUp[i], self.dTr[i]
+                respUp = dU == 1 and dT == 1 and H4["tr"][i] == 1 and H4["cl"][i] > H4["mid"][i] and H1["tr"][i] == 1
+                respDn = dU == -1 and dT == -1 and H4["tr"][i] == -1 and H4["cl"][i] < H4["mid"][i] and H1["tr"][i] == -1
+                bbCrossUp = c[i] > bbUp[i] and c[i - 1] <= bbUp[i - 1]
+                bbCrossDn = c[i] < bbLo[i] and c[i - 1] >= bbLo[i - 1]
+                antic = p.rsAntic and self.tf == "5"
+                rsChL = bullChochL and scBullOk
+                rsChS = bearChochL and scBearOk
+                rsL = respUp and (rsChL or bbCrossUp) and (not antic or self.tr15[i] != 1)
+                rsS = respDn and (rsChS or bbCrossDn) and (not antic or self.tr15[i] != -1)
+
             # --- 7.1 ejecución de la orden pendiente / cierre ---
             if pending and pos != 0 and (1 if pos > 0 else -1) == posDir:
                 pending = False
@@ -620,6 +650,7 @@ class Sim:
                 partialDone = beDone = False
                 tp1Liq = tp2Liq = NA
                 posBO = False
+                posRS = False
                 extreme = NA
                 exits = None
 
@@ -651,13 +682,14 @@ class Sim:
                         tst = c[i] - posDir * p.runnerTrailAtr * a_
                         stopPrice = max(stopPrice, be2, tst) if posDir == 1 else min(stopPrice, be2, tst)
                 if p.moveToBE and posTier >= 2 and not beDone:
-                    reached = h[i] >= entryRef + riskR * p.beAtR if posDir == 1 else l[i] <= entryRef - riskR * p.beAtR
+                    beR = p.rsBeR if posRS else p.beAtR
+                    reached = h[i] >= entryRef + riskR * beR if posDir == 1 else l[i] <= entryRef - riskR * beR
                     if reached:
                         beDone = True
                         bs = entryRef + posDir * p.beCostMult * cost(entryRef)
                         stopPrice = max(stopPrice, bs) if posDir == 1 else min(stopPrice, bs)
-            exitLong = inPos and posDir == 1 and ((posTier == 1 and p.scalpCloseOnLtfChoch and bearChochL) or (posTier >= 2 and p.closeOnChoch and bearChoch1h))
-            exitShort = inPos and posDir == -1 and ((posTier == 1 and p.scalpCloseOnLtfChoch and bullChochL) or (posTier >= 2 and p.closeOnChoch and bullChoch1h))
+            exitLong = inPos and posDir == 1 and ((posTier == 1 and p.scalpCloseOnLtfChoch and bearChochL) or (posTier >= 2 and p.closeOnChoch and bearChoch1h and not posRS))
+            exitShort = inPos and posDir == -1 and ((posTier == 1 and p.scalpCloseOnLtfChoch and bullChochL) or (posTier >= 2 and p.closeOnChoch and bullChoch1h and not posRS))
 
             # --- 7.3 señales ---
             coolL = p.cooldownBars == 0 or lastLossL is None or i - lastLossL > p.cooldownBars
@@ -690,17 +722,20 @@ class Sim:
             rgOkS = p.allowShort and inRange and coolS
             longRange = rgOkL and rgLongSetup and (flat or canRevS) and riskOk(px - scLSlF) and (rgLongTp - px) >= p.rangeMinRR * (px - scLSlF)
             shortRange = rgOkS and rgShortSetup and (flat or canRevL) and riskOk(scSSlF - px) and (px - rgShortTp) >= p.rangeMinRR * (scSSlF - px)
+            longRS = p.allowLong and inRange and coolL and rsL and flat
+            shortRS = p.allowShort and inRange and coolS and rsS and flat
             longBO = p.allowLong and inRange and coolL and boLong and flat
             shortBO = p.allowShort and inRange and coolS and boShort and flat
-            longSignal = longScalp or longPb or longRange or longBO
-            shortSignal = (not longSignal) and (shortScalp or shortPb or shortRange or shortBO)
+            longSignal = longScalp or longPb or longRange or longBO or longRS
+            shortSignal = (not longSignal) and (shortScalp or shortPb or shortRange or shortBO or shortRS)
 
             for d, sig, isScalp, isPb, isRg, scSl, pbSl, rgTp, isBO, boSl in (
-                    (1, longSignal, longScalp, longPb, longRange and not longScalp and not longPb, scLSlF, pbLSlF, rgLongTp, longBO, boLongSl),
-                    (-1, shortSignal, shortScalp, shortPb, shortRange and not shortScalp and not shortPb, scSSlF, pbSSlF, rgShortTp, shortBO, boShortSl)):
+                    (1, longSignal, longScalp, longPb, longRange and not longScalp and not longPb, scLSlF, pbLSlF, rgLongTp, longBO or longRS, boLongSl if longBO else min(self.lo10[i] - 0.3 * a_, px - minD)),
+                    (-1, shortSignal, shortScalp, shortPb, shortRange and not shortScalp and not shortPb, scSSlF, pbSSlF, rgShortTp, shortBO or shortRS, boShortSl if shortBO else max(self.hi10[i] + 0.3 * a_, px + minD))):
                 if not sig:
                     continue
                 posBO = isBO and not isScalp and not isPb and not isRg
+                posRS = posBO and (longRS if d == 1 else shortRS) and not (longBO if d == 1 else shortBO)
                 extreme = NA
                 if posBO:
                     isScalp = isPb = False
@@ -726,6 +761,8 @@ class Sim:
                     riskR = abs(entryRef - stopPrice)
                     targetPrice = rgTp
                     cat = "RANGO"
+                elif posRS:
+                    cat = "RESPALDO"
                 elif posBO:
                     cat = "RUPTURA"
                 else:
