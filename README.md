@@ -14,8 +14,8 @@ Archivo: [`SMC_MTF_Bollinger_Strategy.pine`](SMC_MTF_Bollinger_Strategy.pine)
 | Tipo | Confluencia | Gestión por defecto |
 |---|---|---|
 | **SCALP** | Sólo el LTF | TP 1:1.5, cierre si hay CHOCH LTF en contra, reversa directa permitida |
-| **INTRADÍA** | LTF + estructura 1h a favor (p. ej. CHOCH 5m + CHOCH 1h) | TP 1:3, parcial y breakeven en 1R, cierre si CHOCH 1h en contra |
-| **SWING** | LTF + 1h + 4h a favor | TP 1:5 (u opcional sin TP), parcial, breakeven y trailing ATR |
+| **INTRADÍA** | LTF + estructura 1h a favor (p. ej. CHOCH 5m + CHOCH 1h) | TP fijo 1:2, breakeven en 1.5R, cierre si CHOCH 1h en contra |
+| **SWING** | LTF + 1h + 4h a favor | TP fijo 1:3, breakeven en 1.5R (opcional: parcial + runner con trailing) |
 
 Si entras como SCALP y después la 1h (o 1h + 4h) confirma en tu dirección, la operación se **asciende**
 automáticamente (etiqueta `⬆ INTRADÍA` / `⬆ SWING`): se amplía el TP, se activa breakeven/trailing y se deja correr.

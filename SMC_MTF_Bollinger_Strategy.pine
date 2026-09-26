@@ -162,16 +162,20 @@ atrLen       = input.int(14, "Longitud ATR", minval = 1, group = G_RISK)
 slMode       = input.string("Zona liquidez/FVG", "Pullback BB: referencia del SL", options = ["Vela de entrada", "Zona liquidez/FVG"], group = G_RISK)
 slAtrMult    = input.float(1.0, "Pullback BB: colchón SL (x ATR)", minval = 0, step = 0.1, group = G_RISK)
 rrScalp      = input.float(1.5, "R:R SCALP (1:X)",    minval = 0.5, step = 0.25, group = G_RISK, inline = "rr")
-rrIntra      = input.float(2.5, "INTRADÍA",           minval = 0.5, step = 0.25, group = G_RISK, inline = "rr")
-rrSwing      = input.float(4.0, "SWING",              minval = 0.5, step = 0.25, group = G_RISK, inline = "rr")
+rrIntra      = input.float(2.0, "INTRADÍA",           minval = 0.5, step = 0.25, group = G_RISK, inline = "rr")
+rrSwing      = input.float(3.0, "SWING",              minval = 0.5, step = 0.25, group = G_RISK, inline = "rr")
+exitMode     = input.string("TP fijo (recomendado)", "Gestión de salida", options = ["TP fijo (recomendado)", "Parcial + runner"], group = G_RISK,
+     tooltip = "TP fijo: toda la posición sale en el TP (R:R del tipo). Parcial + runner: cierra un % en X R, mueve a breakeven y deja correr el resto. En el backtest el parcial en 1R + breakeven dejaba ganancias de ~0.5R contra pérdidas de 1R.")
+useRunner    = exitMode == "Parcial + runner"
 scalpPartialBB = input.bool(false, "SCALP: TP parcial en la banda BB opuesta", group = G_RISK)
 partialPct   = input.int(50, "% a cerrar en el TP parcial", minval = 1, maxval = 99, group = G_RISK)
-partialAtR   = input.float(1.0, "INTRADÍA/SWING: TP parcial y breakeven en (R)", minval = 0.25, step = 0.25, group = G_RISK)
+partialAtR   = input.float(2.0, "Parcial + runner: TP parcial en (R)", minval = 0.25, step = 0.25, group = G_RISK)
 moveToBE     = input.bool(true, "INTRADÍA/SWING: mover SL a breakeven", group = G_RISK)
+beAtR        = input.float(1.5, "Breakeven cuando el precio llega a (R)", minval = 0.25, step = 0.25, group = G_RISK)
 beCostMult   = input.float(1.5, "Breakeven + colchón (x costo de comisión)", minval = 0, step = 0.5, group = G_RISK,
      tooltip = "El stop no se pone exactamente en la entrada sino un poco a favor, para cubrir la comisión.")
 trailStartR  = input.float(1.5, "Trailing: se activa desde (R)", minval = 0.5, step = 0.25, group = G_RISK)
-trailMode    = input.string("Sólo SWING", "Trailing stop", options = ["Sólo SWING", "INTRADÍA y SWING", "Ninguno"], group = G_RISK)
+trailMode    = input.string("Ninguno", "Trailing stop", options = ["Sólo SWING", "INTRADÍA y SWING", "Ninguno"], group = G_RISK)
 trailAtrMult = input.float(2.5, "Trailing: distancia (x ATR)", minval = 0.5, step = 0.25, group = G_RISK)
 swingNoFixedTP = input.bool(false, "SWING: sin TP fijo (sólo trailing / estructura)", group = G_RISK)
 allowUpgrade = input.bool(true, "Ascender el trade si 1h/4h se alinean después de entrar", group = G_RISK)
@@ -629,7 +633,7 @@ if inPos
 
     // Breakeven al alcanzar X R (INTRADÍA / SWING)
     if moveToBE and posTier >= 2 and not beDone
-        reached = posDir == 1 ? high >= entryRef + riskR * partialAtR : low <= entryRef - riskR * partialAtR
+        reached = posDir == 1 ? high >= entryRef + riskR * beAtR : low <= entryRef - riskR * beAtR
         if reached
             beDone    := true
             beStop    = entryRef + posDir * beCostMult * f_costDist(entryRef)
@@ -793,7 +797,7 @@ if (exitShortLtf or exitShortHtf) and not longSignal
 activeCtx = posDir != 0 and (pending or strategy.position_size != 0)
 if activeCtx
     finalTp    = posTier == 3 and swingNoFixedTP ? na : targetPrice
-    hasPartial = posTier >= 2 or scalpPartialBB
+    hasPartial = (useRunner and posTier >= 2) or (posTier == 1 and scalpPartialBB)
     tp1Raw     = posTier >= 2 ? entryRef + posDir * riskR * partialAtR : (posDir == 1 ? bbUp : bbLo)
     tp1Valid   = posDir == 1 ? tp1Raw > close and (na(finalTp) or tp1Raw < finalTp) : tp1Raw < close and (na(finalTp) or tp1Raw > finalTp)
     tp1Limit   = hasPartial and tp1Valid ? tp1Raw : finalTp
