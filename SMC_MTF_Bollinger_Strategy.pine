@@ -813,7 +813,7 @@ if strategy.closedtrades > seenClosed
         eb  = strategy.closedtrades.entry_bar_index(i)
         idx = f_statIdx(strategy.closedtrades.entry_comment(i))
         // Cada salida parcial es un registro: se agrupan por vela de entrada para contar operaciones
-        if eb != curTradeBar
+        if na(curTradeBar) or eb != curTradeBar      // comparar contra na siempre da falso en Pine
             f_finalize(curTradeIdx, curTradePnl)
             curTradeBar := eb
             curTradeIdx := idx
