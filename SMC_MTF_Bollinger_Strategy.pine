@@ -1234,5 +1234,12 @@ if longSignal
     alert("SMC MTF BB · LONG " + f_tierName(posTier) + " (" + posType + ") en " + syminfo.ticker + " @ " + str.tostring(entryRef, format.mintick) + " | SL " + str.tostring(stopPrice, format.mintick) + " | TP " + str.tostring(targetPrice, format.mintick), alert.freq_once_per_bar_close)
 if shortSignal
     alert("SMC MTF BB · SHORT " + f_tierName(posTier) + " (" + posType + ") en " + syminfo.ticker + " @ " + str.tostring(entryRef, format.mintick) + " | SL " + str.tostring(stopPrice, format.mintick) + " | TP " + str.tostring(targetPrice, format.mintick), alert.freq_once_per_bar_close)
+// Aviso cuando se activa o se pierde el respaldo (para no tener que mirar el gráfico)
+if useRS and respUp and not respUp[1]
+    alert("SMC MTF BB · " + syminfo.ticker + ": RESPALDO ALCISTA activo (D+" + macroName + "+" + htfName + "). Buscar COMPRAS en " + ltfName, alert.freq_once_per_bar_close)
+if useRS and respDn and not respDn[1]
+    alert("SMC MTF BB · " + syminfo.ticker + ": RESPALDO BAJISTA activo (D+" + macroName + "+" + htfName + "). Buscar VENTAS en " + ltfName, alert.freq_once_per_bar_close)
+if useRS and ((respUp[1] and not respUp) or (respDn[1] and not respDn))
+    alert("SMC MTF BB · " + syminfo.ticker + ": se perdió el respaldo. No abrir nuevas entradas.", alert.freq_once_per_bar_close)
 if bearChoch1h or bullChoch1h
     alert("SMC MTF BB · CHOCH " + (bullChoch1h ? "alcista" : "bajista") + " en " + htfName + " (" + syminfo.ticker + ")", alert.freq_once_per_bar_close)
