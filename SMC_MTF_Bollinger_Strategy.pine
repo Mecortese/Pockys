@@ -1203,6 +1203,30 @@ if showStats and barstate.islast
     f_statRow(10, "TOTAL", tn, tw, tgw, tgl)
     table.cell(stats, 0, 11, "PF > 1 = gana", text_color = color.gray, text_size = size.tiny, text_halign = text.align_left)
 
+// --- Últimas operaciones (para analizarlas sin buscar en el gráfico) ---
+showLast = input.bool(true, "Mostrar tabla de últimas operaciones", group = G_VIS)
+nLast    = input.int(8, "Cantidad de operaciones en la tabla", minval = 1, maxval = 20, group = G_VIS)
+var table lastT = table.new(position.bottom_right, 6, 21, bgcolor = color.new(color.black, 15), border_color = color.new(color.gray, 60), border_width = 1, frame_color = color.gray, frame_width = 1)
+if showLast and barstate.islast
+    hdr2 = color.new(color.gray, 50)
+    heads = array.from("Fecha entrada", "Tipo", "Entrada", "Salida", "Motivo", "Resultado")
+    for k = 0 to 5
+        table.cell(lastT, k, 0, array.get(heads, k), bgcolor = hdr2, text_color = color.white, text_size = tblSize)
+    nT = strategy.closedtrades
+    shown = math.min(nLast, nT)
+    if shown > 0
+        for j = 0 to shown - 1
+            i   = nT - 1 - j
+            isL = strategy.closedtrades.size(i) > 0
+            pnl = strategy.closedtrades.profit(i)
+            row = j + 1
+            table.cell(lastT, 0, row, str.format_time(strategy.closedtrades.entry_time(i), "dd/MM HH:mm", syminfo.timezone), text_color = color.white, text_size = tblSize)
+            table.cell(lastT, 1, row, isL ? "COMPRA" : "VENTA", bgcolor = isL ? color.new(color.green, 40) : color.new(color.red, 40), text_color = color.white, text_size = tblSize)
+            table.cell(lastT, 2, row, str.tostring(strategy.closedtrades.entry_price(i), format.mintick), text_color = color.white, text_size = tblSize)
+            table.cell(lastT, 3, row, str.tostring(strategy.closedtrades.exit_price(i), format.mintick), text_color = color.white, text_size = tblSize)
+            table.cell(lastT, 4, row, strategy.closedtrades.exit_comment(i), text_color = color.white, text_size = tblSize)
+            table.cell(lastT, 5, row, (pnl >= 0 ? "+" : "") + str.tostring(pnl, "#.##"), bgcolor = pnl >= 0 ? color.new(color.green, 55) : color.new(color.red, 55), text_color = color.white, text_size = tblSize)
+
 // =====================================================================================================
 // 10. ALERTAS (usar "Crear alerta" -> "alert() function calls only")
 // =====================================================================================================
