@@ -80,7 +80,10 @@ rsAntic     = input.bool(true, "Gráfico < 15m: sólo entradas anticipadas (15m 
 rsMoveBE    = input.bool(false, "Mover SL a la entrada", group = G_RS, inline = "rsbe",
      tooltip = "Backtest 1 año (réplica exacta del Probador): mover el SL a la entrada en +1R hizo perder (BTC 5m -21%) porque el precio suele volver a la entrada antes de seguir; con stop fijo y objetivo 3R: BTC 5m +9.7%, BTC 15m +11.5%, ETH 15m +8.2%. Moverlo en +2R tampoco mejoró.")
 rsBeR       = input.float(2.0, "en (R)", minval = 0.5, step = 0.25, group = G_RS, inline = "rsbe")
-rsTargetR   = input.float(3.0, "Objetivo (R)", minval = 1, step = 0.5, group = G_RS,
+rsMgmt      = input.string("Dejar correr a 3R", "Gestión (para el Probador)", options = ["Dejar correr a 3R", "Scalp 1R", "Mitad 1R + mitad 3R"], group = G_RS,
+     tooltip = "Cada etiqueta muestra los dos objetivos: TP1 scalp (1R) y TP2 tendencia (3R). Backtest 1 año sin costos, con respaldo: dejar correr a 3R BTC 5m +33% / 15m +18%, ETH 5m +14% / 15m +12%; scalp 1R BTC 5m +6% / 15m +11%, ETH +7% / +8% (acierta 52-55%). Mitad y mitad queda en el medio.")
+rsScalpR    = input.float(1.0, "TP1 scalp (R)", minval = 0.5, step = 0.25, group = G_RS)
+rsTargetR   = input.float(3.0, "TP2 tendencia (R)", minval = 1, step = 0.5, group = G_RS,
      tooltip = "Objetivo fijo en R. Backtest 1 año con stop fijo: 3R fue la mejor combinación.")
 allowLong   = input.bool(true, "Permitir largos", group = G_MODE)
 allowShort  = input.bool(true, "Permitir cortos", group = G_MODE)
@@ -697,7 +700,7 @@ if pending and strategy.position_size != 0 and math.sign(strategy.position_size)
     entryRef  := strategy.position_avg_price
     riskR     := math.abs(entryRef - stopPrice)
     if not posRange
-        targetPrice := entryRef + posDir * riskR * (posRS ? rsTargetR : posBO ? rrBreakout : f_rr(posTier))
+        targetPrice := entryRef + posDir * riskR * (posRS ? (rsMgmt == "Scalp 1R" ? rsScalpR : rsTargetR) : posBO ? rrBreakout : f_rr(posTier))
 
 pendingExpired = pending and strategy.position_size == 0 and bar_index > pendingBar + (pendingLimit ? scalpLimitExpiry : 1)
 if pendingExpired
@@ -926,7 +929,7 @@ if longSignal
         entryRef     := close
         stopPrice    := rsLongSl
         riskR        := entryRef - stopPrice
-        targetPrice  := entryRef + riskR * rsTargetR
+        targetPrice  := entryRef + riskR * (rsMgmt == "Scalp 1R" ? rsScalpR : rsTargetR)
     if isRangeL
         posTier      := 1
         posType      := "Rango " + htfName + " · CHOCH " + ltfName
@@ -940,7 +943,7 @@ if longSignal
         strategy.entry("Long", strategy.long, qty = useRiskSizing ? f_qty(entryRef, stopPrice) : na, limit = entryRef, comment = entryCmt)
     else
         strategy.entry("Long", strategy.long, qty = useRiskSizing ? f_qty(entryRef, stopPrice) : na, comment = entryCmt)
-    label.new(bar_index, low, isRSL ? "COMPRA ▲ con respaldo\n" + posType + "\nSL " + str.tostring(stopPrice, format.mintick) + (rsMoveBE ? " · SL a entrada en " + str.tostring(entryRef + riskR * rsBeR, format.mintick) : " (fijo)") + "\nTP " + str.tostring(targetPrice, format.mintick) + " (" + str.tostring(rsTargetR) + "R)" : isBOL ? "COMPRA ▲ RUPTURA\n" + posType + "\nTP " + str.tostring(rrBreakout) + "R" : isRangeL ? "COMPRA ▲ RANGO (rápido)\n" + posType + "\nTP " + str.tostring((targetPrice - entryRef) / riskR, "#.#") + "R" : "COMPRA ▲ " + f_tierName(posTier) + "\n" + posType + "\n" + (useLiqExit ? "Recorrido " + str.tostring((tp1Liq - entryRef) / riskR, "#.#") + "R" : "TP 1:" + str.tostring(f_rr(posTier))),
+    label.new(bar_index, low, isRSL ? "COMPRA ▲ con respaldo\n" + posType + "\nSL " + str.tostring(stopPrice, format.mintick) + (rsMoveBE ? " · SL a entrada en " + str.tostring(entryRef + riskR * rsBeR, format.mintick) : " (fijo)") + "\nTP1 scalp " + str.tostring(entryRef + riskR * rsScalpR, format.mintick) + " (" + str.tostring(rsScalpR) + "R)" + "\nTP2 tendencia " + str.tostring(entryRef + riskR * rsTargetR, format.mintick) + " (" + str.tostring(rsTargetR) + "R)" : isBOL ? "COMPRA ▲ RUPTURA\n" + posType + "\nTP " + str.tostring(rrBreakout) + "R" : isRangeL ? "COMPRA ▲ RANGO (rápido)\n" + posType + "\nTP " + str.tostring((targetPrice - entryRef) / riskR, "#.#") + "R" : "COMPRA ▲ " + f_tierName(posTier) + "\n" + posType + "\n" + (useLiqExit ? "Recorrido " + str.tostring((tp1Liq - entryRef) / riskR, "#.#") + "R" : "TP 1:" + str.tostring(f_rr(posTier))),
          style = label.style_label_up, color = f_dirColor(1, posTier), textcolor = color.black, size = posTier == 1 ? size.small : size.normal)
 
 if shortSignal
@@ -979,7 +982,7 @@ if shortSignal
         entryRef     := close
         stopPrice    := rsShortSl
         riskR        := stopPrice - entryRef
-        targetPrice  := entryRef - riskR * rsTargetR
+        targetPrice  := entryRef - riskR * (rsMgmt == "Scalp 1R" ? rsScalpR : rsTargetR)
     if isRangeS
         posTier      := 1
         posType      := "Rango " + htfName + " · CHOCH " + ltfName
@@ -993,7 +996,7 @@ if shortSignal
         strategy.entry("Short", strategy.short, qty = useRiskSizing ? f_qty(entryRef, stopPrice) : na, limit = entryRef, comment = entryCmt)
     else
         strategy.entry("Short", strategy.short, qty = useRiskSizing ? f_qty(entryRef, stopPrice) : na, comment = entryCmt)
-    label.new(bar_index, high, isRSS ? "VENTA ▼ con respaldo\n" + posType + "\nSL " + str.tostring(stopPrice, format.mintick) + (rsMoveBE ? " · SL a entrada en " + str.tostring(entryRef - riskR * rsBeR, format.mintick) : " (fijo)") + "\nTP " + str.tostring(targetPrice, format.mintick) + " (" + str.tostring(rsTargetR) + "R)" : isBOS ? "VENTA ▼ RUPTURA\n" + posType + "\nTP " + str.tostring(rrBreakout) + "R" : isRangeS ? "VENTA ▼ RANGO (rápido)\n" + posType + "\nTP " + str.tostring((entryRef - targetPrice) / riskR, "#.#") + "R" : "VENTA ▼ " + f_tierName(posTier) + "\n" + posType + "\n" + (useLiqExit ? "Recorrido " + str.tostring((entryRef - tp1Liq) / riskR, "#.#") + "R" : "TP 1:" + str.tostring(f_rr(posTier))),
+    label.new(bar_index, high, isRSS ? "VENTA ▼ con respaldo\n" + posType + "\nSL " + str.tostring(stopPrice, format.mintick) + (rsMoveBE ? " · SL a entrada en " + str.tostring(entryRef - riskR * rsBeR, format.mintick) : " (fijo)") + "\nTP1 scalp " + str.tostring(entryRef - riskR * rsScalpR, format.mintick) + " (" + str.tostring(rsScalpR) + "R)" + "\nTP2 tendencia " + str.tostring(entryRef - riskR * rsTargetR, format.mintick) + " (" + str.tostring(rsTargetR) + "R)" : isBOS ? "VENTA ▼ RUPTURA\n" + posType + "\nTP " + str.tostring(rrBreakout) + "R" : isRangeS ? "VENTA ▼ RANGO (rápido)\n" + posType + "\nTP " + str.tostring((entryRef - targetPrice) / riskR, "#.#") + "R" : "VENTA ▼ " + f_tierName(posTier) + "\n" + posType + "\n" + (useLiqExit ? "Recorrido " + str.tostring((entryRef - tp1Liq) / riskR, "#.#") + "R" : "TP 1:" + str.tostring(f_rr(posTier))),
          style = label.style_label_down, color = f_dirColor(-1, posTier), textcolor = color.white, size = posTier == 1 ? size.small : size.normal)
 
 // Cierres por CHOCH en contra (si no se ha abierto ya una reversa en esta vela)
@@ -1008,8 +1011,9 @@ if (exitShortLtf or exitShortHtf) and not longSignal
 activeCtx = posDir != 0 and (pending or strategy.position_size != 0)
 if activeCtx
     finalTp    = posRange or posBO or posRS ? targetPrice : useLiqExit ? tp2Liq : posTier == 3 and swingNoFixedTP ? na : targetPrice
-    hasPartial = not posRange and not posBO and not posRS and (useLiqExit or (useRunner and posTier >= 2) or (posTier == 1 and scalpPartialBB))
-    tp1Raw     = posRange or posBO or posRS ? targetPrice : useLiqExit ? tp1Liq : posTier >= 2 ? entryRef + posDir * riskR * partialAtR : (posDir == 1 ? bbUp : bbLo)
+    rsHalf     = posRS and rsMgmt == "Mitad 1R + mitad 3R"
+    hasPartial = rsHalf or not posRange and not posBO and not posRS and (useLiqExit or (useRunner and posTier >= 2) or (posTier == 1 and scalpPartialBB))
+    tp1Raw     = rsHalf ? entryRef + posDir * riskR * rsScalpR : posRange or posBO or posRS ? targetPrice : useLiqExit ? tp1Liq : posTier >= 2 ? entryRef + posDir * riskR * partialAtR : (posDir == 1 ? bbUp : bbLo)
     tp1Valid   = posDir == 1 ? tp1Raw > close and (na(finalTp) or tp1Raw < finalTp) : tp1Raw < close and (na(finalTp) or tp1Raw > finalTp)
     tp1Limit   = hasPartial and tp1Valid ? tp1Raw : finalTp
     entryId    = posDir == 1 ? "Long" : "Short"
@@ -1074,6 +1078,7 @@ plotshape(showSwings and sweepHigh, "Barrido máximo (liquidez)", shape.xcross, 
 showLvl = showLevels and strategy.position_size != 0
 plot(showLvl ? stopPrice   : na, "Stop Loss / Trailing", color = color.red,  style = plot.style_linebr, linewidth = 2)
 plot(showLvl and useLiqExit and not partialDone ? tp1Liq : na, "Objetivo 1 (zona de liquidez)", color = color.new(color.lime, 40), style = plot.style_linebr, linewidth = 1)
+plot(showLvl and posRS ? entryRef + posDir * riskR * rsScalpR : na, "TP1 scalp", color = color.new(color.aqua, 20), style = plot.style_linebr, linewidth = 1)
 plot(showLvl and posRS and rsMoveBE and not beDone ? entryRef + posDir * riskR * rsBeR : na, "Nivel para mover SL a la entrada", color = color.new(color.yellow, 20), style = plot.style_linebr, linewidth = 1)
 plot(showLvl ? targetPrice : na, "Take Profit",          color = color.lime, style = plot.style_linebr, linewidth = 2)
 plot(showLvl ? strategy.position_avg_price : na, "Precio entrada", color = color.gray, style = plot.style_linebr)

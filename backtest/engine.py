@@ -38,6 +38,9 @@ class Params:
     rsBeR: float = 1.0
     rsTargetR: float = 3.0
     rsMode: str = "trend"           # "trend" (D+macro+conf a favor) | "htfpullback" (D a favor + macro en su banda extrema)
+    rsAdaptive: bool = False        # TENDENCIA (3R) si hay recorrido libre >= rsRoomR hasta la zona de liquidez HTF; si no, SCALP
+    rsRoomR: float = 3.0
+    rsScalpR: float = 1.0
     rsZonePct: float = 0.25
     rsZoneHours: float = 8.0
     useBreakout: bool = False       # Ruptura de banda BB a favor de la tendencia HTF
@@ -368,7 +371,7 @@ class Sim:
 
         def rr(tier):
             if posRS:
-                return p.rsTargetR
+                return posRR
             if posBO:
                 return p.rrBreakout
             return p.rrSwing if tier == 3 else p.rrIntra if tier == 2 else p.rrScalp
@@ -409,6 +412,7 @@ class Sim:
         tp1Liq = tp2Liq = NA
         posBO = False
         posRS = False
+        posRR = p.rsTargetR
         extreme = NA
         lastLossL = lastLossS = None
         # ---- estado del broker ----
@@ -654,7 +658,11 @@ class Sim:
             rsL = rsS = False
             if p.useRS and i > 0:
                 dU, dT = self.dUp[i], self.dTr[i]
-                if p.rsMode == "htfpullback":
+                if p.rsMode == "none":
+                    respUp = respDn = True
+                elif p.rsMode == "h1":
+                    respUp, respDn = H1["tr"][i] == 1, H1["tr"][i] == -1
+                elif p.rsMode == "htfpullback":
                     respUp = dU == 1 and dT == 1 and bool(self.zLow[i])
                     respDn = dU == -1 and dT == -1 and bool(self.zHigh[i])
                 else:
@@ -665,7 +673,7 @@ class Sim:
                 antic = p.rsAntic and self.tf == "5"
                 rsChL = bullChochL and scBullOk
                 rsChS = bearChochL and scBearOk
-                if p.rsMode == "htfpullback":
+                if p.rsMode in ("htfpullback", "none", "h1"):
                     rsL, rsS = respUp and rsChL, respDn and rsChS
                 else:
                     rsL = respUp and (rsChL or bbCrossUp) and (not antic or self.tr15[i] != 1)
@@ -800,7 +808,17 @@ class Sim:
                     targetPrice = rgTp
                     cat = "RANGO"
                 elif posRS:
+                    posRR = p.rsTargetR
                     cat = "RESPALDO"
+                    if p.rsAdaptive:
+                        nl2 = self.next_level(i, entryRef, d, 0.0)
+                        room = abs(nl2 - entryRef) / riskR if (nl2 == nl2 and riskR > 0) else 99.0
+                        if room < p.rsRoomR:
+                            posRR = p.rsScalpR
+                            cat = "RESPALDO SCALP"
+                        else:
+                            cat = "RESPALDO TEND"
+                    targetPrice = entryRef + d * riskR * posRR
                 elif posBO:
                     cat = "RUPTURA"
                 else:

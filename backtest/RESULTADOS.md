@@ -172,3 +172,18 @@ Respaldo "trend": diario + 4h + 1h a favor (motor por defecto). Stop fijo en tod
 | liq4h, scalp TP 1.5R | −29.6% | −5.9% | −13.0% | +0.1% |
 
 Scalping (salida en 1-1.5R) con comisión taker 0.04% no tiene ventaja: acierta ~50% y la comisión (~0.2R en 5m) lo vuelve negativo.
+
+## 12. Sin costos (el usuario opera manual en HFM/MT5): scalp vs tendencia — réplica exacta, último año
+
+| Entradas | BTC 5m | BTC 15m | ETH 5m | ETH 15m |
+|---|---|---|---|---|
+| **Respaldo D+4h+1h, dejar correr a 3R** | **+33.0% (PF 1.36)** | **+18.0% (1.46)** | **+14.0% (1.17)** | **+12.3% (1.31)** |
+| Respaldo, scalp 1R | +6.3% (1.08) | +10.8% (1.21) | +7.4% (1.10) | +8.0% (1.14) |
+| Respaldo, scalp 1.5R | +10.2% | +5.1% | +8.3% | +9.6% |
+| Sólo 1h a favor, scalp 1R | −11.3% | +4.2% | −13.4% | −0.7% |
+| Sin respaldo, scalp 1R | −15.0% | −1.1% | −17.0% | −16.3% |
+| Respaldo, TENDENCIA/SCALP según recorrido a la zona HTF | +9.9% | +5.9% | +5.2% | +14.1% |
+
+Dejar correr a 3R es positivo en ambas mitades del año en los cuatro casos. Clasificar scalp/tendencia por el
+recorrido hasta la zona de liquidez HTF no mejora (corta operaciones que atraviesan esa zona).
+El script muestra en cada etiqueta TP1 scalp (1R) y TP2 tendencia (3R).
