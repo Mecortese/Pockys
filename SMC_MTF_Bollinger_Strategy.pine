@@ -77,6 +77,8 @@ rsTriggers  = input.string("CHOCH + Ruptura BB", "Gatillos de 5m", options = ["C
 rsNeedLiq   = input.bool(true, "CHOCH: exigir toma de liquidez previa", group = G_RS)
 rsAntic     = input.bool(true, "Gráfico < 15m: sólo entradas anticipadas (15m todavía en retroceso)", group = G_RS,
      tooltip = "Backtest 1 año BTC/ETH 5m con respaldo D+4h+1h: si el 15m todavía está en contra (retroceso) la señal de 5m dio +0.26R por operación; si el 15m ya giró a favor, sólo +0.05R. Entrar anticipando el giro del 15m da mejor precio.")
+rsShowInfo  = input.bool(true, "Mostrar también señales SIN respaldo (informativas, en gris)", group = G_RS,
+     tooltip = "Mismos gatillos (liquidez + CHOCH o ruptura BB) cuando Diario/4h/1h no están todos a favor. No las opera el Probador. En el backtest, sin respaldo perdieron incluso como scalp 1R: tomarlas sólo con un motivo externo (noticias, contexto).")
 rsMoveBE    = input.bool(false, "Mover SL a la entrada", group = G_RS, inline = "rsbe",
      tooltip = "Backtest 1 año (réplica exacta del Probador): mover el SL a la entrada en +1R hizo perder (BTC 5m -21%) porque el precio suele volver a la entrada antes de seguir; con stop fijo y objetivo 3R: BTC 5m +9.7%, BTC 15m +11.5%, ETH 15m +8.2%. Moverlo en +2R tampoco mejoró.")
 rsBeR       = input.float(2.0, "en (R)", minval = 0.5, step = 0.25, group = G_RS, inline = "rsbe")
@@ -998,6 +1000,20 @@ if shortSignal
         strategy.entry("Short", strategy.short, qty = useRiskSizing ? f_qty(entryRef, stopPrice) : na, comment = entryCmt)
     label.new(bar_index, high, isRSS ? "VENTA ▼ con respaldo\n" + posType + "\nSL " + str.tostring(stopPrice, format.mintick) + (rsMoveBE ? " · SL a entrada en " + str.tostring(entryRef - riskR * rsBeR, format.mintick) : " (fijo)") + "\nTP1 scalp " + str.tostring(entryRef - riskR * rsScalpR, format.mintick) + " (" + str.tostring(rsScalpR) + "R)" + "\nTP2 tendencia " + str.tostring(entryRef - riskR * rsTargetR, format.mintick) + " (" + str.tostring(rsTargetR) + "R)" : isBOS ? "VENTA ▼ RUPTURA\n" + posType + "\nTP " + str.tostring(rrBreakout) + "R" : isRangeS ? "VENTA ▼ RANGO (rápido)\n" + posType + "\nTP " + str.tostring((entryRef - targetPrice) / riskR, "#.#") + "R" : "VENTA ▼ " + f_tierName(posTier) + "\n" + posType + "\n" + (useLiqExit ? "Recorrido " + str.tostring((entryRef - tp1Liq) / riskR, "#.#") + "R" : "TP 1:" + str.tostring(f_rr(posTier))),
          style = label.style_label_down, color = f_dirColor(-1, posTier), textcolor = color.white, size = posTier == 1 ? size.small : size.normal)
+
+// --- Señales informativas SIN respaldo (no las opera el Probador; decide el usuario) ---
+f_ok(bool b) =>
+    b ? "✓" : "✗"
+infoL = useRS and rsShowInfo and barstate.isconfirmed and not respUp and (rsChL or rsBbL) and not longSignal
+infoS = useRS and rsShowInfo and barstate.isconfirmed and not respDn and (rsChS or rsBbS) and not shortSignal
+if infoL
+    riskI = close - rsLongSl
+    label.new(bar_index, low, "compra sin respaldo\n" + (rsChL ? "Liquidez + CHOCH " : "Ruptura BB ") + ltfName + "\nD " + f_ok(dUp) + " · " + macroName + " " + f_ok(tr4 == 1 and cl4 > mid4) + " · " + htfName + " " + f_ok(tr1 == 1) + "\nSL " + str.tostring(rsLongSl, format.mintick) + "\nTP1 " + str.tostring(close + riskI * rsScalpR, format.mintick) + " · TP2 " + str.tostring(close + riskI * rsTargetR, format.mintick),
+         style = label.style_label_up, color = color.new(color.gray, 35), textcolor = color.new(color.lime, 0), size = size.tiny)
+if infoS
+    riskI = rsShortSl - close
+    label.new(bar_index, high, "venta sin respaldo\n" + (rsChS ? "Liquidez + CHOCH " : "Ruptura BB ") + ltfName + "\nD " + f_ok(dDn) + " · " + macroName + " " + f_ok(tr4 == -1 and cl4 < mid4) + " · " + htfName + " " + f_ok(tr1 == -1) + "\nSL " + str.tostring(rsShortSl, format.mintick) + "\nTP1 " + str.tostring(close - riskI * rsScalpR, format.mintick) + " · TP2 " + str.tostring(close - riskI * rsTargetR, format.mintick),
+         style = label.style_label_down, color = color.new(color.gray, 35), textcolor = color.new(color.red, 0), size = size.tiny)
 
 // Cierres por CHOCH en contra (si no se ha abierto ya una reversa en esta vela)
 if (exitLongLtf or exitLongHtf) and not shortSignal
