@@ -28,8 +28,12 @@ def job(args):
     return out
 
 BO = {"useBreakout": True, "usePullback": False, "useScalp": False, "useRangeMode": False}
+SQ = {"useSqueeze": True, "usePullback": False, "useScalp": False, "useRangeMode": False, "exitMode": "fixed", "moveToBE": False, "closeOnChoch": False}
 RS = {"useRS": True, "usePullback": False, "useScalp": False, "useRangeMode": False}
 VARIANTS = {
+    "squeeze_3R": SQ,
+    "squeeze_2R": {**SQ, "rrBreakout": 2.0},
+    "squeeze_3R_macro": {**SQ, "sqzTrend": True},
     "rs_base": RS,
     "rs_BE1.5": {**RS, "rsBeR": 1.5},
     "rs_sinBE": {**RS, "moveToBE": False},

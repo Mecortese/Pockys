@@ -38,6 +38,11 @@ class Params:
     rsBeR: float = 1.0
     rsTargetR: float = 3.0
     useBreakout: bool = False       # Ruptura de banda BB a favor de la tendencia HTF
+    useSqueeze: bool = False        # Explosión tras compresión de bandas (squeeze), cualquier dirección
+    sqzPct: float = 0.20            # ancho de banda en el 20% más bajo de las últimas sqzLook velas
+    sqzLook: int = 240
+    sqzRecent: int = 12             # la compresión tiene que haber ocurrido en las últimas N velas
+    sqzTrend: bool = False          # exigir además tendencia macro a favor
     breakoutTrendMode: str = "tendencia"   # "tendencia" (estructura conf+macro y precio vs media macro) | "macro"
     rrBreakout: float = 3.0
     usePullback: bool = True
@@ -310,6 +315,11 @@ class Sim:
         self.highestSc = s(h).rolling(p.scalpSlLookback, min_periods=1).max().values
         self.lowestPb = s(l).rolling(p.pbTurnWindow, min_periods=1).min().values
         self.highestPb = s(h).rolling(p.pbTurnWindow, min_periods=1).max().values
+        bbw = (self.bbUp - self.bbLo) / self.bbMid
+        rk = s(bbw).rolling(p.sqzLook, min_periods=p.sqzLook // 2).rank(pct=True).values
+        self.sqzOn = s((rk <= p.sqzPct).astype(float)).rolling(p.sqzRecent, min_periods=1).max().values > 0
+        self.sqzLo = s(l).rolling(p.sqzRecent, min_periods=1).min().values
+        self.sqzHi = s(h).rolling(p.sqzRecent, min_periods=1).max().values
         self.lo10 = s(l).rolling(10, min_periods=1).min().values
         self.hi10 = s(h).rolling(10, min_periods=1).max().values
         if p.useRS:
@@ -605,7 +615,17 @@ class Sim:
             rgShortSetup = rangeRegime and bearChochL and rgHighRecent and scBearOk and px > rgShortTp
 
             # --- Motor ruptura BB con tendencia ---
-            if p.useBreakout and i > 0:
+            if p.useSqueeze and i > 0:
+                upX = c[i] > bbUp[i] and c[i - 1] <= bbUp[i - 1]
+                dnX = c[i] < bbLo[i] and c[i - 1] >= bbLo[i - 1]
+                okU = (not p.sqzTrend) or H4["cl"][i] > H4["mid"][i]
+                okD = (not p.sqzTrend) or H4["cl"][i] < H4["mid"][i]
+                boLong = bool(self.sqzOn[i - 1]) and upX and okU
+                boShort = bool(self.sqzOn[i - 1]) and dnX and okD
+                mD = max(0.5 * a_, 4 * 2 * p.commPct / 100 * c[i])
+                boLongSl = min(self.sqzLo[i] - 0.3 * a_, c[i] - mD)
+                boShortSl = max(self.sqzHi[i] + 0.3 * a_, c[i] + mD)
+            elif p.useBreakout and i > 0:
                 if p.breakoutTrendMode == "tendencia":
                     tU = H4["tr"][i] == 1 and H4["cl"][i] > H4["mid"][i] and H1["tr"][i] == 1
                     tD = H4["tr"][i] == -1 and H4["cl"][i] < H4["mid"][i] and H1["tr"][i] == -1

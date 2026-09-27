@@ -143,3 +143,16 @@ que volvían a la entrada se contaban igual como +3R. La réplica exacta coincid
 
 Stop fijo + 3R: BTC 5m positivo en ambas mitades (+3.0% / +6.7%), BTC 15m (+5.7% / +5.8%),
 ETH 15m (+8.4% / −0.2%). Mover el SL a la entrada temprano corta las operaciones que después llegan a 3R.
+
+## 10. Explosión tras compresión (squeeze) — réplica exacta, último año
+
+Entrada en la primera vela que cierra fuera de la banda tras una compresión (ancho de banda en el 20% más bajo),
+stop del otro lado de la compresión, sin filtro de tendencia (o con filtro macro):
+
+| | 5m | 15m |
+|---|---|---|
+| BTC 3R | −71.5% (PF 0.66) | −25.0% (PF 0.77) |
+| ETH 3R | −48.5% (PF 0.81) | −12.7% (PF 0.88) |
+| BTC 3R + filtro macro | −58.5% | −16.5% |
+
+Las rupturas desde compresión en 5m/15m son mayormente falsas: no sirven como entrada mecánica.
