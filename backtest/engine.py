@@ -37,6 +37,9 @@ class Params:
     rsAntic: bool = True
     rsBeR: float = 1.0
     rsTargetR: float = 3.0
+    rsMode: str = "trend"           # "trend" (D+macro+conf a favor) | "htfpullback" (D a favor + macro en su banda extrema)
+    rsZonePct: float = 0.25
+    rsZoneHours: float = 8.0
     useBreakout: bool = False       # Ruptura de banda BB a favor de la tendencia HTF
     useSqueeze: bool = False        # Explosión tras compresión de bandas (squeeze), cualquier dirección
     sqzPct: float = 0.20            # ancho de banda en el 20% más bajo de las últimas sqzLook velas
@@ -322,6 +325,14 @@ class Sim:
         self.sqzHi = s(h).rolling(p.sqzRecent, min_periods=1).max().values
         self.lo10 = s(l).rolling(10, min_periods=1).min().values
         self.hi10 = s(h).rolling(10, min_periods=1).max().values
+        if p.useRS and p.rsMode == "htfpullback":
+            H4m = map_htf(self.t, resample(src, self.tfM), htf_features(resample(src, self.tfM), p), self.tfM)
+            bw = H4m["up"] - H4m["lo"]
+            nb = max(1, int(p.rsZoneHours * 3600 / {"5": 300, "15": 900, "60": 3600, "240": 14400}[self.tf]))
+            zl = (l <= H4m["lo"] + p.rsZonePct * bw).astype(float)
+            zh = (h >= H4m["up"] - p.rsZonePct * bw).astype(float)
+            self.zLow = s(zl).rolling(nb, min_periods=1).max().values > 0
+            self.zHigh = s(zh).rolling(nb, min_periods=1).max().values > 0
         if p.useRS:
             from be5 import daily_trend
             D = daily_trend(src, self.t)
@@ -643,15 +654,22 @@ class Sim:
             rsL = rsS = False
             if p.useRS and i > 0:
                 dU, dT = self.dUp[i], self.dTr[i]
-                respUp = dU == 1 and dT == 1 and H4["tr"][i] == 1 and H4["cl"][i] > H4["mid"][i] and H1["tr"][i] == 1
-                respDn = dU == -1 and dT == -1 and H4["tr"][i] == -1 and H4["cl"][i] < H4["mid"][i] and H1["tr"][i] == -1
+                if p.rsMode == "htfpullback":
+                    respUp = dU == 1 and dT == 1 and bool(self.zLow[i])
+                    respDn = dU == -1 and dT == -1 and bool(self.zHigh[i])
+                else:
+                    respUp = dU == 1 and dT == 1 and H4["tr"][i] == 1 and H4["cl"][i] > H4["mid"][i] and H1["tr"][i] == 1
+                    respDn = dU == -1 and dT == -1 and H4["tr"][i] == -1 and H4["cl"][i] < H4["mid"][i] and H1["tr"][i] == -1
                 bbCrossUp = c[i] > bbUp[i] and c[i - 1] <= bbUp[i - 1]
                 bbCrossDn = c[i] < bbLo[i] and c[i - 1] >= bbLo[i - 1]
                 antic = p.rsAntic and self.tf == "5"
                 rsChL = bullChochL and scBullOk
                 rsChS = bearChochL and scBearOk
-                rsL = respUp and (rsChL or bbCrossUp) and (not antic or self.tr15[i] != 1)
-                rsS = respDn and (rsChS or bbCrossDn) and (not antic or self.tr15[i] != -1)
+                if p.rsMode == "htfpullback":
+                    rsL, rsS = respUp and rsChL, respDn and rsChS
+                else:
+                    rsL = respUp and (rsChL or bbCrossUp) and (not antic or self.tr15[i] != 1)
+                    rsS = respDn and (rsChS or bbCrossDn) and (not antic or self.tr15[i] != -1)
 
             # --- 7.1 ejecución de la orden pendiente / cierre ---
             if pending and pos != 0 and (1 if pos > 0 else -1) == posDir:

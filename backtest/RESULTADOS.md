@@ -156,3 +156,19 @@ stop del otro lado de la compresión, sin filtro de tendencia (o con filtro macr
 | BTC 3R + filtro macro | −58.5% | −16.5% |
 
 Las rupturas desde compresión en 5m/15m son mayormente falsas: no sirven como entrada mecánica.
+
+## 11. Comprar la liquidez del 4h con el diario a favor, y scalping con salida rápida — réplica exacta, último año
+
+Respaldo "liq4h": diario alcista + precio tocó el 25% inferior de la banda de 4h en las últimas 8 h, gatillo liquidez + CHOCH.
+Respaldo "trend": diario + 4h + 1h a favor (motor por defecto). Stop fijo en todos.
+
+| Variante | BTC 5m | BTC 15m | ETH 5m | ETH 15m |
+|---|---|---|---|---|
+| trend, TP 3R (por defecto) | **+9.7%** | **+11.5%** | +0.2% | **+8.2%** |
+| liq4h, TP 3R | −26.6% | −13.1% | −10.3% | +7.8% |
+| trend, scalp TP 1R | −19.3% | +0.2% | −10.6% | +0.3% |
+| trend, scalp TP 1.5R | −13.1% | −2.8% | −7.1% | +3.5% |
+| liq4h, scalp TP 1R | −35.7% | −6.9% | −19.0% | −8.6% |
+| liq4h, scalp TP 1.5R | −29.6% | −5.9% | −13.0% | +0.1% |
+
+Scalping (salida en 1-1.5R) con comisión taker 0.04% no tiene ventaja: acierta ~50% y la comisión (~0.2R en 5m) lo vuelve negativo.
