@@ -187,3 +187,11 @@ Scalping (salida en 1-1.5R) con comisión taker 0.04% no tiene ventaja: acierta 
 Dejar correr a 3R es positivo en ambas mitades del año en los cuatro casos. Clasificar scalp/tendencia por el
 recorrido hasta la zona de liquidez HTF no mejora (corta operaciones que atraviesan esa zona).
 El script muestra en cada etiqueta TP1 scalp (1R) y TP2 tendencia (3R).
+
+## 13. Costos de Bitunix (futuros: 0.02% maker / 0.06% taker) — respaldo D+4h+1h, stop fijo, último año
+
+| Gestión / costo | BTC 5m | BTC 15m | ETH 5m | ETH 15m |
+|---|---|---|---|---|
+| 3R, órdenes límite (maker 0.02%) | **+20.8%** | **+14.7%** | +6.9% | **+10.2%** |
+| 3R, órdenes a mercado (taker 0.06%) | −0.4% | +8.4% | −6.1% | +6.2% |
+| Scalp 1R, a mercado (taker 0.06%) | −29.6% | −4.8% | −18.4% | −3.3% |
